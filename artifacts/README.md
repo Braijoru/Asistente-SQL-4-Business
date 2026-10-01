@@ -7,8 +7,8 @@ los documentos apuntan a las fuentes existentes del repositorio.
 ## Contenido
 
 - `project-context.md`: contexto canonico del proyecto, estado actual, datos,
-  baseline y decisiones aun abiertas.
-- `deliverable-2-brief.md`: lectura verificada de `docs/Deliverable 2.pdf`,
+  baseline y decisiones vigentes de Deliverable 2.
+- `deliverable-2-brief.md`: lectura verificada de `docs/enunciado-deliverable2.pdf`,
   organizada por pagina y requisito.
 - `skills/deliverable-2-implementation.md`: skill para disenar e implementar
   la primera solucion end-to-end.
@@ -16,12 +16,16 @@ los documentos apuntan a las fuentes existentes del repositorio.
   criterio y conjunto de entradas.
 - `skills/reproducible-demo.md`: skill para preparar el documento tecnico, el
   video y la reproduccion desde el repositorio.
+- `auditoria-deliverable-2.md`: auditoria de la version v1 del Deliverable 2
+  (commit `dbd29b1`) y estado de las correcciones aplicadas en v2.
+- `auditoria/colab_rerun_2026-09-23.txt`: registro de la re-ejecucion
+  independiente de v1 en Colab T4 usada como evidencia en la auditoria.
 
 ## Fuentes revisadas
 
 - `README.md`
 - `docs/deliverable1.tex`
-- `docs/Deliverable 2.pdf`
+- `docs/enunciado-deliverable2.pdf`
 - `data/build_db.py`
 - `data/build_questions.py`
 - `data/questions.json`

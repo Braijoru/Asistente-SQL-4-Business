@@ -183,6 +183,10 @@
         "SELECT SUM(s.quantity) FROM sales s JOIN products p ON s.product_id = p.product_id WHERE p.category = 'Electronica'"
       ],
       "combine": "share_pct",
+      "answer_fields": [
+        "total",
+        "subset"
+      ],
       "gold_result": [
         [
           [

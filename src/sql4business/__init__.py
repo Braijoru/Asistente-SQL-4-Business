@@ -1,5 +1,5 @@
-"""Reusable pipeline for the SQL4Business Deliverable 2 system."""
+"""SQL4Business: business questions answered with read-only SQL and faithful reports."""
 
-from .pipeline import BusinessAssistant, AssistantResult
+from .pipeline import AssistantFailure, AssistantResult, BusinessAssistant
 
-__all__ = ["AssistantResult", "BusinessAssistant"]
+__all__ = ["AssistantFailure", "AssistantResult", "BusinessAssistant"]

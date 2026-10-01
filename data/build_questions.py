@@ -4,6 +4,12 @@ resultado de referencia ejecutando el SQL correcto contra business.db.
 Genera questions.json, listo para que el notebook de evaluacion lo
 use como ground truth.
 
+Genera tambien paraphrases.json: 12 preguntas con la misma intencion
+y el mismo SQL de referencia que una pregunta oficial, pero redactadas
+de otra forma. Es el conjunto de evaluacion externo (held-out): se
+escribio durante la auditoria del Deliverable 2 y no se usa para
+disenar el sistema.
+
 Uso:
     python build_questions.py
 """
@@ -13,6 +19,7 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "business.db"
 OUT_PATH = Path(__file__).parent / "questions.json"
+HELDOUT_PATH = Path(__file__).parent / "paraphrases.json"
 
 SCHEMA = """
 CREATE TABLE products (product_id INTEGER PRIMARY KEY, name TEXT, category TEXT, price INTEGER);
@@ -128,6 +135,8 @@ QUESTIONS = [
             "WHERE p.category = 'Electronica'",
         ],
         "combine": "share_pct",
+        # La pregunta pide los dos conteos, no el porcentaje.
+        "answer_fields": ["total", "subset"],
     },
     {
         "id": "q12",
@@ -166,6 +175,24 @@ QUESTIONS = [
 ]
 
 
+# Parafrasis: (id, pregunta oficial de origen, texto). Heredan el SQL de
+# referencia, el tipo y la operacion de la pregunta de origen.
+PARAPHRASES = [
+    ("q09-p", "q09", "¿Cuánto crecieron, en porcentaje, las ventas de junio a agosto respecto de marzo a mayo?"),
+    ("q10-p", "q10", "¿Qué producto generó más ingresos entre marzo y mayo, y cuál entre junio y agosto? ¿Es el mismo?"),
+    ("q11-p", "q11", "¿Qué porcentaje de las unidades vendidas en el semestre corresponde a la categoría Electronica?"),
+    ("q12-p", "q12", "¿Cuánto varió el ingreso entre marzo de 2026 y agosto de 2026, en términos porcentuales?"),
+    ("q14-p", "q14", "Entre los productos que están bajo su punto de reorden, ¿cuál vendió más en pesos durante el semestre?"),
+    ("q12-en", "q12", "Was August 2026 revenue higher or lower than March 2026 revenue, and by what percent?"),
+    ("q14-en", "q14", "Among products whose stock is below the reorder point, which one generated the most revenue in the semester?"),
+    ("q02-p", "q02", "¿Cuánto facturó en total la categoría Electronica entre marzo y agosto de 2026?"),
+    ("q04-p", "q04", "¿Cuántas unidades de productos de la categoría Alimentos se vendieron en agosto de 2026?"),
+    ("q07-p", "q07", "¿Cuántas transacciones de venta tuvo la Polera Basica durante todo el periodo?"),
+    ("q08-p", "q08", "¿Cuál es el monto promedio de cada venta de productos de la categoría Hogar?"),
+    ("q15-p", "q15", "¿Cuánto vendió la tienda en total, en pesos, entre marzo y agosto de 2026?"),
+]
+
+
 def run_scalar(cur, sql):
     cur.execute(sql)
     rows = cur.fetchall()
@@ -189,10 +216,23 @@ def main():
         ),
         encoding="utf-8",
     )
-    conn.close()
     print(f"questions.json generado con {len(out)} preguntas.")
     for e in out:
         print(f"  {e['id']} [{e['type']}] -> {e['gold_result']}")
+
+    by_id = {q["id"]: q for q in out}
+    heldout = []
+    for pid, source, text in PARAPHRASES:
+        entry = {k: v for k, v in by_id[source].items() if k not in ("id", "question", "answer_fields")}
+        entry = {"id": pid, "source_id": source, "question": text, **entry}
+        entry["gold_result"] = [run_scalar(cur, s) for s in entry["gold_sql"]]
+        heldout.append(entry)
+    HELDOUT_PATH.write_text(
+        json.dumps({"questions": heldout}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    conn.close()
+    print(f"paraphrases.json generado con {len(heldout)} preguntas.")
 
 
 if __name__ == "__main__":

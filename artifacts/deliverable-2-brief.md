@@ -1,6 +1,6 @@
 # Deliverable 2: lectura verificada
 
-Fuente leida directamente: `docs/Deliverable 2.pdf`, archivo de 2 paginas.
+Fuente leida directamente: `docs/enunciado-deliverable2.pdf`, archivo de 2 paginas.
 Este documento conserva los requisitos que gobiernan el trabajo siguiente.
 
 ## Pagina 1

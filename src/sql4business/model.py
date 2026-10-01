@@ -1,4 +1,4 @@
-"""Model loading and English prompts for the direct and structured systems."""
+"""Model wrapper and prompts for the baseline and the structured assistant."""
 
 from __future__ import annotations
 
@@ -8,30 +8,44 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+
+# Direct-prompting baseline, verbatim from notebooks/baseline_eval.ipynb (Deliverable 1).
+BASELINE_TEMPLATE = """Eres un asistente que traduce preguntas de negocio a SQL.
+
+Esquema de la base de datos:
+{schema}
+
+Pregunta: {question}
+
+Responde unicamente con la o las consultas SQL necesarias para responder la
+pregunta, separadas por punto y coma. No expliques nada, no uses markdown."""
+BASELINE_MAX_NEW_TOKENS = 300
+
+
 class TextGenerator(Protocol):
-    def generate(self, prompt: str) -> str:
-        """Generate one deterministic completion."""
+    def generate(self, prompt: str, max_new_tokens: int | None = None) -> str:
+        """Return one deterministic completion."""
 
 
 @dataclass
 class GenerationSettings:
-    max_new_tokens: int = 512
+    max_new_tokens: int = 384
     load_in_4bit: bool = True
 
 
 class HuggingFaceGenerator:
-    """Small wrapper shared by the baseline and Deliverable 2 solution."""
+    """Greedy generation with 4-bit NF4 quantization, as declared in Deliverable 1."""
 
-    def __init__(self, model_id: str, settings: GenerationSettings | None = None):
-        settings = settings or GenerationSettings()
+    def __init__(self, model_id: str = MODEL_ID, settings: GenerationSettings | None = None):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.model_id = model_id
-        self.settings = settings
+        self.settings = settings or GenerationSettings()
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
         kwargs: dict[str, Any] = {"device_map": "auto"}
-        if settings.load_in_4bit and torch.cuda.is_available():
+        if self.settings.load_in_4bit and torch.cuda.is_available():
             from transformers import BitsAndBytesConfig
 
             kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -41,7 +55,7 @@ class HuggingFaceGenerator:
             )
         self.model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, max_new_tokens: int | None = None) -> str:
         messages = [{"role": "user", "content": prompt}]
         inputs = self.tokenizer.apply_chat_template(
             messages,
@@ -51,108 +65,96 @@ class HuggingFaceGenerator:
         ).to(self.model.device)
         output = self.model.generate(
             **inputs,
-            max_new_tokens=self.settings.max_new_tokens,
+            max_new_tokens=max_new_tokens or self.settings.max_new_tokens,
             do_sample=False,
         )
         generated = output[0][inputs["input_ids"].shape[1] :]
         return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
 
 
-def direct_prompt(schema: str, question: str) -> str:
-    return f"""You are a business analyst translating a manager's question into SQLite SQL.
-
-Use only the following database schema:
-{schema}
-
-Manager question:
-{question}
-
-Return only the read-only SELECT statement or statements needed to answer the question.
-Use SQLite syntax, the exact table and column names, and the dates and labels present in the question.
-If multiple statements are needed, separate them with semicolons. Do not explain anything and do not use markdown."""
+def baseline_prompt(schema: str, question: str) -> str:
+    return BASELINE_TEMPLATE.format(schema=schema, question=question)
 
 
-def plan_prompt(
-    schema: str,
-    question: str,
-    previous_error: str | None = None,
-    expected_operation: str | None = None,
-) -> str:
+def plan_prompt(schema: str, question: str, previous_error: str | None = None) -> str:
     retry = ""
     if previous_error:
-        retry = f"\nThe previous attempt failed with this error. Correct it: {previous_error}\n"
-    operation_hint = ""
-    if expected_operation:
-        operation_hint = (
-            f"\nAn intent guard identified the required composition operation as "
-            f"{expected_operation}. Use that operation.\n"
+        retry = (
+            "\nYour previous plan failed. Fix the cause and return a complete new plan.\n"
+            f"Error: {previous_error}\n"
         )
-    return f"""You are the planning component of a business analytics assistant.
+    return f"""You are the planning component of a business analytics assistant over a SQLite database.
+The user is a manager who does not know SQL. Turn the question into a short executable plan.
 
-The user is a manager and does not know SQL. Convert the question into a minimal, executable plan.
-Use only SQLite read-only SELECT or WITH queries and only the schema below.
-Retrieve no irrelevant tables. A combined question must use multiple steps when its answer depends
-on multiple values. Never calculate percentages mentally: declare the composition operation.
-
-Relevant schema:
+Database:
 {schema}
 
 Question:
 {question}
 {retry}
-{operation_hint}
-Return exactly one JSON object with this shape and no markdown:
-{{
-  "question_type": "puntual" or "combinada",
-  "steps": [
-    {{"id": "step_1", "purpose": "short English description", "sql": "one SQLite SELECT"}}
-  ],
-  "composition": {{"operation": "direct|growth_pct|compare_equal|share_pct|filter_then_rank"}},
-  "report_fields": ["fields that the final answer must mention"]
-}}
+Return exactly one JSON object and nothing else:
+{{"steps": [{{"id": "step_1", "purpose": "short description", "sql": "one SQLite SELECT"}}],
+  "composition": {{"operation": "direct"}}}}
 
-For direct questions use exactly one step and operation direct; never return alternative or duplicate
-queries. Select only the columns needed for the manager's answer. Every step is executed in a fresh
-SQLite call, so a CTE defined in one step does not exist in another step; repeat the CTE definition
-or use a self-contained query. SQLite does not support strftime('%Q'); use explicit date ranges.
-Use products.category for category filters and products.name for product names. For an average
-revenue per sale, use AVG(sales.amount), not a division by total quantity. For growth_pct, order
-steps from earlier to later. For share_pct, return exactly two steps: total units first and subset
-units second. For compare_equal, return exactly two self-contained steps, one for each period, and
-compare their top names. For filter_then_rank, return exactly two steps: first select product_id
-values below the reorder point, then return product_id and product name ordered by
-SUM(sales.amount) DESC. Never use an unordered ranking query.
+Choose the operation; code computes it, so never calculate percentages yourself:
+- direct: the answer is the result of the last step. Prefer a single step.
+- growth_pct: exactly two steps, each returning one number: the earlier or reference value first,
+  the later value second. Code computes (second - first) / first * 100.
+- share_pct: exactly two steps, each returning one number: the total first, the part second.
+  Code computes part / total * 100.
+- compare_equal: exactly two steps, each returning the top name of one group or period, in the
+  order the question mentions them. Code checks whether both names are the same.
+- filter_then_rank: exactly two steps: the first returns the ids of the products that satisfy the
+  condition; the second ranks products by the requested metric in descending order. Code returns
+  the best-ranked product that satisfies the condition.
+
+SQL rules: one SELECT or WITH query per step, SQLite syntax, only the tables, columns and exact
+text values listed above, explicit date ranges inside the available dates. When a filter or a
+name comes from another table, join it through product_id. A later step may read an earlier
+step's rows as a table with that step's id (for example FROM step_1). Select only the columns
+the answer needs.
 """
 
 
-def report_prompt(question: str, answer: Any) -> str:
-    encoded = json.dumps(answer, ensure_ascii=False, indent=2)
+def report_prompt(question: str, answer: Any, steps: list[dict[str, Any]]) -> str:
+    evidence = "\n".join(
+        f"- {step['id']}: {step['purpose']} -> {json.dumps(step['rows'][:5], ensure_ascii=False)}"
+        for step in steps
+    )
+    encoded = json.dumps(answer, ensure_ascii=False)
     return f"""You are the reporting component of a business analytics assistant.
 
-Write a concise answer in English for a non-technical manager. The answer must be in English even
-when the question is in Spanish.
 Question: {question}
 
-The verified result is:
+Verified answer computed by code:
 {encoded}
 
-Do not invent or alter any number, product name, comparison, direction, or percentage.
-Return exactly one JSON object with this shape and no markdown:
-{{"answer": "one or two concise sentences", "claims": ["each factual claim in the answer"]}}
+SQL steps that produced it:
+{evidence}
+
+Write one or two sentences for a non-technical manager, in the same language as the question.
+Use only the numbers and names of the verified answer and the steps. Copy each number exactly
+as it appears above (for example 97658120 or 59.08), without adding separators, and do not add
+other figures. For a percentage change, state whether it is an increase or a decrease.
+Describe periods and groups as the steps define them.
+Return only the sentences, without JSON, markdown or quotes.
 """
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
-    """Parse a JSON object even when a model accidentally adds a short fence."""
+    """Parse a JSON object, tolerating a markdown fence around it."""
 
-    cleaned = re.sub(r"```(?:json)?|```", "", text, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE).strip()
     try:
         value = json.loads(cleaned)
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
         if not match:
-            raise ValueError("The model did not return a JSON object.")
-        value = json.loads(match.group(0))
+            raise ValueError("The model did not return a JSON object.") from None
+        try:
+            value = json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"The model returned invalid JSON: {exc}") from None
     if not isinstance(value, dict):
         raise ValueError("The model JSON must be an object.")
     return value

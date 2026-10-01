@@ -1,6 +1,6 @@
-torch
-transformers>=4.45.0
-accelerate>=0.34.0
-bitsandbytes>=0.43.0
-pandas>=2.0.0
-jupyter>=1.0.0
+# Versions of the measured Colab T4 runs (also recorded in results/*.json "meta").
+# Greedy decoding reproduces outputs exactly only with the same versions.
+torch==2.11.0
+transformers==5.17.0
+accelerate==1.15.0
+bitsandbytes==0.50.2

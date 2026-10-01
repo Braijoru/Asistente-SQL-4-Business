@@ -1,144 +1,175 @@
-"""Deterministic composition of SQL results for combined questions."""
+"""Deterministic composition of SQL results for combined questions.
+
+Every shape problem raises ValueError, so the assistant's retry loop can ask
+the planner for a corrected plan instead of silently returning a wrong value.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sqlite3
+from dataclasses import dataclass, field
 from typing import Any
 
 
-SUPPORTED_OPERATIONS = {
-    "direct",
-    "growth_pct",
-    "compare_equal",
-    "share_pct",
-    "filter_then_rank",
-}
+SUPPORTED_OPERATIONS = ("direct", "growth_pct", "share_pct", "compare_equal", "filter_then_rank")
+TWO_STEP_OPERATIONS = SUPPORTED_OPERATIONS[1:]
 
 
 @dataclass
 class ComposedAnswer:
     operation: str
     value: Any
-    details: dict[str, Any]
+    details: dict[str, Any] = field(default_factory=dict)
 
 
-def _scalar(rows: list[tuple[Any, ...]]) -> Any:
-    if not rows or not rows[0]:
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _single_number(rows: list[tuple[Any, ...]], role: str) -> float:
+    if len(rows) != 1:
+        raise ValueError(f"The {role} step must return exactly one row; it returned {len(rows)}.")
+    numbers = [value for value in rows[0] if _is_number(value)]
+    if len(numbers) != 1:
+        raise ValueError(f"The {role} step must return exactly one number; it returned {rows[0]!r}.")
+    return float(numbers[0])
+
+
+class _Products:
+    """Resolve product ids, product names and category labels from the database."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        rows = conn.execute("SELECT product_id, name, category FROM products").fetchall()
+        self.name_by_id = {int(product_id): name for product_id, name, _ in rows}
+        self.id_by_name = {name: int(product_id) for product_id, name, _ in rows}
+        self.labels = set(self.id_by_name) | {category for _, _, category in rows}
+
+    def resolve(self, value: Any) -> int | None:
+        if isinstance(value, str):
+            return self.id_by_name.get(value)
+        if _is_number(value) and float(value).is_integer() and int(value) in self.name_by_id:
+            return int(value)
         return None
-    return rows[0][0]
+
+    def entity_column(self, rows: list[tuple[Any, ...]]) -> int | None:
+        """Index of the first column that identifies a product in every row."""
+
+        width = min(len(row) for row in rows)
+        def identifies(i: int, text: bool) -> bool:
+            return all(isinstance(r[i], str) == text and self.resolve(r[i]) is not None for r in rows)
+        candidates = [i for i in range(width) if identifies(i, True)] or [
+            i for i in range(width) if identifies(i, False)
+        ]
+        return candidates[0] if candidates else None
 
 
-def _number(value: Any) -> float:
-    if value is None:
-        raise ValueError("A numeric SQL result was required; SQLite returned NULL.")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"A numeric SQL result was required; received {value!r}."
-        ) from exc
+def _top_label(rows: list[tuple[Any, ...]], role: str, products: _Products | None) -> str:
+    """First known product/category name in the first row, else its first text value."""
+
+    if not rows:
+        raise ValueError(f"The {role} step returned no rows.")
+    labels = [value for value in rows[0] if isinstance(value, str)]
+    if products is not None:
+        labels = [value for value in labels if value in products.labels] or labels
+    if not labels:
+        raise ValueError(f"The {role} step must return a name; it returned {rows[0]!r}.")
+    return labels[0]
+
+
+def _filter_then_rank(result_sets: list[list[tuple[Any, ...]]], conn: sqlite3.Connection) -> ComposedAnswer:
+    products = _Products(conn)
+    filtered_rows, ranking_rows = result_sets
+    if not filtered_rows:
+        raise ValueError("The filter step returned no rows.")
+    if not ranking_rows:
+        raise ValueError("The ranking step returned no rows.")
+
+    filter_column = products.entity_column(filtered_rows)
+    if filter_column is None:
+        raise ValueError("The filter step must return product ids or names.")
+    filtered_ids = {products.resolve(row[filter_column]) for row in filtered_rows}
+
+    entity = products.entity_column(ranking_rows)
+    if entity is None:
+        raise ValueError("The ranking step must return product ids or names.")
+    width = min(len(row) for row in ranking_rows)
+    metric_columns = [
+        i for i in range(width)
+        if i != entity
+        and products.entity_column([(row[i],) for row in ranking_rows]) is None
+        and all(_is_number(row[i]) for row in ranking_rows)
+    ]
+    ordered = list(ranking_rows)
+    if metric_columns:
+        # Sort by the metric so an unordered ranking query still yields the maximum.
+        ordered.sort(key=lambda row: row[metric_columns[-1]], reverse=True)
+    ranked_ids = [products.resolve(row[entity]) for row in ordered]
+    winner_id = next((pid for pid in ranked_ids if pid in filtered_ids), None)
+    if winner_id is None:
+        raise ValueError("No ranked product satisfies the filter; rank all candidate products.")
+    return ComposedAnswer(
+        "filter_then_rank",
+        {"winner": products.name_by_id[winner_id]},
+        {
+            "filtered": sorted(products.name_by_id[pid] for pid in filtered_ids),
+            "ranked": [products.name_by_id[pid] for pid in ranked_ids],
+        },
+    )
 
 
 def compose_results(
     operation: str,
     result_sets: list[list[tuple[Any, ...]]],
-    conn=None,
+    conn: sqlite3.Connection | None = None,
 ) -> ComposedAnswer:
-    """Apply a named operation without asking the language model to calculate."""
+    """Apply a named operation to executed results; the model never calculates."""
 
     if operation not in SUPPORTED_OPERATIONS:
         raise ValueError(f"Unsupported composition operation: {operation}")
     if not result_sets:
         raise ValueError("At least one SQL result is required.")
+    result_sets = [[tuple(row) for row in rows] for rows in result_sets]
 
     if operation == "direct":
-        value = result_sets[0][0][0] if len(result_sets[0]) == 1 and len(result_sets[0][0]) == 1 else result_sets[0]
-        return ComposedAnswer(operation, value, {"result": result_sets[0]})
+        rows = result_sets[-1]
+        value = rows[0][0] if len(rows) == 1 and len(rows[0]) == 1 else [list(row) for row in rows]
+        return ComposedAnswer(operation, value)
 
-    if len(result_sets) < 2:
-        raise ValueError(f"Operation {operation} requires at least two results.")
-
-    first = _scalar(result_sets[0])
-    second = _scalar(result_sets[1])
+    if len(result_sets) != 2:
+        raise ValueError(f"Operation {operation} requires exactly two steps.")
+    first, second = result_sets
 
     if operation == "growth_pct":
-        previous = _number(first)
-        current = _number(second)
+        previous = _single_number(first, "earlier value")
+        current = _single_number(second, "later value")
         if previous == 0:
-            raise ValueError("Cannot calculate growth from a zero denominator.")
+            raise ValueError("Cannot calculate growth from a zero earlier value.")
         growth = (current - previous) / previous * 100
         return ComposedAnswer(
             operation,
-            {"previous": previous, "current": current, "growth_pct": growth, "direction": "increase" if growth >= 0 else "decrease"},
-            {"previous": previous, "current": current},
-        )
-
-    if operation == "compare_equal":
-        changed = first != second
-        return ComposedAnswer(
-            operation,
-            {"first": first, "second": second, "changed": changed},
-            {},
+            {
+                "previous": previous,
+                "current": current,
+                "growth_pct": growth,
+                "direction": "increase" if growth >= 0 else "decrease",
+            },
         )
 
     if operation == "share_pct":
-        total = _number(first)
-        subset = _number(second)
+        total = _single_number(first, "total")
+        part = _single_number(second, "part")
         if total == 0:
-            raise ValueError("Cannot calculate share from a zero denominator.")
-        share = subset / total * 100
-        return ComposedAnswer(
-            operation,
-            {"total": total, "subset": subset, "share_pct": share},
-            {},
-        )
+            raise ValueError("Cannot calculate a share of a zero total.")
+        if part > total:
+            raise ValueError("The part is larger than the total; return the total in the first step.")
+        return ComposedAnswer(operation, {"total": total, "subset": part, "share_pct": part / total * 100})
 
-    ranking_rows = list(result_sets[1])
-    if ranking_rows and len(ranking_rows[0]) > 1 and all(
-        isinstance(row[-1], (int, float)) for row in ranking_rows
-    ):
-        ranking_rows.sort(key=lambda row: row[-1], reverse=True)
-    ranked_names = [
-        row[0] if isinstance(row[0], str) else row[1]
-        for row in ranking_rows
-        if row
-    ]
-    winner = None
-    if conn is not None:
-        name_to_id = {
-            row[1]: row[0]
-            for row in conn.execute("SELECT product_id, name FROM products").fetchall()
-        }
-        filtered_ids = {
-            value if isinstance(value, (int, float)) else name_to_id.get(value)
-            for row in result_sets[0]
-            if row
-            for value in [row[0]]
-        }
-        winner = next(
-            (name for name in ranked_names if name_to_id.get(name) in filtered_ids),
-            None,
-        )
-    else:
-        filtered_ids = {row[0] for row in result_sets[0] if row}
-    return ComposedAnswer(
-        operation,
-        {"winner": winner},
-        {"filtered_ids": sorted(filtered_ids), "ranked_names": ranked_names},
-    )
+    if operation == "compare_equal":
+        products = _Products(conn) if conn is not None else None
+        left = _top_label(first, "first group", products)
+        right = _top_label(second, "second group", products)
+        return ComposedAnswer(operation, {"first": left, "second": right, "changed": left != right})
 
-
-def answer_claim_values(answer: Any) -> list[Any]:
-    """Flatten values that a faithful report should preserve."""
-
-    values: list[Any] = []
-    if isinstance(answer, dict):
-        for key, value in answer.items():
-            if key != "changed" and key != "direction":
-                values.extend(answer_claim_values(value))
-    elif isinstance(answer, list):
-        for value in answer:
-            values.extend(answer_claim_values(value))
-    elif isinstance(answer, (int, float, str)) and not isinstance(answer, bool):
-        values.append(answer)
-    return values
+    if conn is None:
+        raise ValueError("filter_then_rank needs a database connection to resolve products.")
+    return _filter_then_rank(result_sets, conn)

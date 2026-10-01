@@ -1,0 +1,96 @@
+Re-ejecución independiente del Deliverable 2 (auditoría) — 2026-09-23, ~22:13–22:34 (hora Chile)
+=================================================================================================
+Entorno: Google Colab (cuaderno en modo prueba, sin guardar en Drive), runtime "T4 (Python 3)".
+Script: artifacts/auditoria/audit_colab.py (17131 caracteres, sha256[:16] = 8e4b842041eb4194).
+Commit evaluado: dbd29b13045bd0edcd2cc8fb82f19b94019e9e74 (clonado desde github.com/VicenteSonez/Asistente-SQL-4-Business).
+Parámetros: los mismos del notebook (Qwen/Qwen2.5-Coder-3B-Instruct, 4-bit NF4, cómputo bf16,
+greedy, max_new_tokens=384, max_retries=2). Parte B usa max_new_tokens=300 como D1.
+
+ENV {"python": "3.13.15", "torch": "2.11.0+cu130", "cuda": "13.0", "gpu": "Tesla T4",
+     "transformers": "5.17.0", "accelerate": "1.15.0", "bitsandbytes": "0.50.2",
+     "huggingface_hub": "1.31.0", "model_snapshot": ["488639f1ff808d1d3d0ba301aef8c11461451ec5"]}
+Carga del modelo: 149.4 s | memoria GPU máxima (parte A): 2403 MB | duración total: 1257.6 s
+
+---- Salida principal (líneas por pregunta; errores truncados) ----
+A q01 base=True sol_sql=True ans=True rep=True full=True att=1 err=
+A q02 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+A q03 base=True sol_sql=True ans=True rep=True full=True att=1 err=
+A q04 base=True sol_sql=None ans=None rep=None full=False att=None err=RuntimeError: The assistant failed after 3 attempts: attempt_3: no suc…
+A q05 base=True sol_sql=True ans=True rep=True full=True att=1 err=
+A q06 base=True sol_sql=True ans=True rep=True full=True att=1 err=
+A q07 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+A q08 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+A q09 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+A q10 base=False sol_sql=None ans=None rep=None full=False att=None err=RuntimeError: The assistant failed after 3 attempts: attempt_3: A SQL …
+A q11 base=False sol_sql=True ans=True rep=False full=False att=1 err=
+A q12 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+A q13 base=True sol_sql=True ans=True rep=False full=False att=1 err=
+A q14 base=False sol_sql=None ans=None rep=None full=False att=None err=RuntimeError: The assistant failed after 3 attempts: attempt_3: Operat…
+A q15 base=False sol_sql=True ans=True rep=True full=True att=1 err=
+B q01..q15 d1_correct = T F F T T T T F F F F F T F T
+C q09-p guard=direct base=False sol_sql=None full=False err=...The question requires direct, but the plan uses growth_pct.
+C q10-p guard=direct base=False sol_sql=None full=False err=...Expecting ',' delimiter: line 13 column 6 (char 812).
+C q11-p guard=direct base=False sol_sql=None full=False err=...The question requires direct, but the plan uses share_pct.
+C q12-p guard=direct base=False sol_sql=None full=False err=...The question requires direct, but the plan uses growth_pct.
+C q14-p guard=direct base=False sol_sql=False ans=False full=False err=
+C q12-en guard=direct base=False sol_sql=False ans=False full=False err=
+C q14-en guard=filter_then_rank base=False sol_sql=None full=False err=...Operation filter_then_rank requires exactly two steps.
+C q02-p guard=direct base=False sol_sql=True ans=True full=True
+C q04-p guard=direct base=True sol_sql=True ans=True full=True
+C q07-p guard=direct base=False sol_sql=True ans=True full=True
+C q08-p guard=direct base=True sol_sql=True ans=True full=True
+C q15-p guard=direct base=True sol_sql=True ans=True full=True
+C readme_example composed={"previous": 18508100.0, "current": 56871970.0, "growth_pct": 207.28151458010277, "direction": "increase"}
+                 report="Verified result: {...}" (respaldo, no redactado por el modelo)
+                 plan: paso 1 = marzo (2026-03-01..03-31), paso 2 = abril-junio (2026-04-01..06-30)
+D q01..q15 grounded_direct = T T T T T T T T F F F T T F T
+
+==== SUMMARY ====
+A puntual   baseline=6/10 solution_sql=9/10 solution_full=8/10
+A combinada baseline=0/5 solution_sql=3/5 solution_full=2/5
+A global    baseline=6/15 solution_sql=12/15 solution_full=10/15
+B puntual   d1_prompt_baseline=7/10
+B combinada d1_prompt_baseline=0/5
+B global    d1_prompt_baseline=7/15
+C puntual   baseline=3/5 solution_sql=5/5 solution_full=5/5
+C combinada baseline=0/7 solution_sql=0/7 solution_full=0/7
+C global    baseline=3/12 solution_sql=5/12 solution_full=5/12
+D puntual   grounded_direct=10/10
+D combinada grounded_direct=1/5
+D global    grounded_direct=11/15
+
+---- Comparación de la parte A con results/deliverable2_comparison.json ----
+Idéntico en 15/15 preguntas para: salida cruda de la baseline, bandera de la baseline, banderas de la
+solución, plan, reporte y mensaje de error.
+Llamadas de planificación en los 3 fallos (intentos → salidas distintas):
+  q04: 3 → 2 distintas; las tres filtran por products.category sin JOIN con products.
+  q10: 3 → 2 distintas; intento 1 usa strftime('%Q'); intentos 2-3 agrupan por '%Y-%m' y el paso 2 lee FROM step_1.
+  q14: 3 → 2 distintas; intento 1 trae 2 pasos, pero el paso 2 usa "WHERE p.product_id IN (SELECT product_id
+       FROM step_1)" (rechazado: referencia entre pasos); en los intentos 2-3 el modelo elimina el paso 2
+       y queda "requires exactly two steps".
+
+---- Parte B: prompt de D1 hoy vs results/baseline_results.json (Qwen-3B) ----
+Salidas idénticas 15/15; d1_correct idéntico 15/15 (7/15 = 46,7 %).
+
+---- Parte C: detalle de las combinadas parafraseadas ----
+q09-p  Los 3 planes del modelo son correctos (growth_pct; marzo-mayo y junio-agosto con fechas 2026);
+       el clasificador los veta ("requires direct"). Baseline: fechas 2023 → error.
+q10-p  Plan por mes con "mes de mayor ingreso" (incorrecto) y JSON inválido. Baseline: estructura correcta
+       (dos consultas top-1) pero fechas 2023 → error.
+q11-p  Plan share_pct con un solo paso (le falta el subconjunto), además vetado. Baseline: porcentaje en una
+       consulta con fechas 2023 → error.
+q12-p  Los 3 planes del modelo son correctos (growth_pct; marzo y agosto 2026); vetados. Baseline: una
+       consulta que devuelve -59.08 (signo invertido: (marzo - agosto) / marzo).
+q14-p  Clasificador = direct; el modelo responde con una consulta: [["Zapatillas Urbanas", 6198450]] y
+       reporte "Zapatillas Urbanas vendió más en pesos durante el semestre." Respuesta correcta, pero el
+       criterio la marca incorrecta (no reproduce los conjuntos intermedios del gold). La baseline también
+       devuelve la respuesta correcta en una consulta.
+q12-en Intento 1: plan con compare_equal (vetado). Intento 2: plan direct solo con marzo → valor 18508100.
+       Reporte: "August 2026 revenue was higher than March 2026 revenue by 34.7%." — cifra inventada
+       (la real es 59.08 %). report_fidelity=False, pero ese es el texto que recibe el usuario.
+q14-en Clasificador = filter_then_rank (contiene "stock" y "revenue"); el modelo entrega 1 paso en los
+       3 intentos → mismo fallo que q14. La baseline devuelve la respuesta correcta en una consulta.
+
+---- Parte D: prompt directo + esquema enriquecido de la solución (sin descomposición) ----
+Puntuales 10/10. Combinadas 1/5 (q12: dos consultas separadas, marzo y agosto, más una tercera con el
+porcentaje). q14 devuelve [["Zapatillas Urbanas", 6198450]] (respuesta correcta; criterio SQL = incorrecta).
