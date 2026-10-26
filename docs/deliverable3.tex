@@ -87,9 +87,8 @@
 \begin{multicols}{2}
 \small
 
-\head{Tarea, continuidad y modelo.} Igual que en los entregables anteriores: responder preguntas de
-negocio puntuales y combinadas ejecutando el SQL necesario y reportando solo cifras fieles a los
-resultados, con el mismo criterio de salida correcta. El sistema parte de la solución del D2: sus
+\head{Tarea, continuidad y modelo.} La misma tarea, falla y criterio de salida correcta de los
+entregables anteriores. El sistema parte de la solución del D2: sus
 piezas deterministas (esquema enriquecido, SQL de solo lectura, composición, verificación de
 fidelidad) pasan a ser herramientas de los agentes, y el código del D2 no cambia. Los cuatro agentes
 usan el mismo modelo, \texttt{Qwen/Qwen2.5-Coder-3B-Instruct} (revisión \texttt{488639f}, NF4 de
@@ -105,8 +104,7 @@ lee solo la pregunta, declara qué tipo de respuesta pide y qué períodos nombr
 lo comparan con lo calculado: si no calza, devuelve el caso al Planificador; si el reporte no es
 fiel, al Reportero; si no, acepta. Se divide así porque son cuatro competencias distintas
 (entender la pregunta, interactuar con la base, redactar y juzgar) y porque quien juzga no debe ser
-quien produjo el trabajo. Los ciclos tienen presupuestos fijos (ver grafo); al agotarse, el sistema
-entrega la mejor respuesta previa o declara que no pudo responder.
+quien produjo el trabajo.
 
 \head{Técnicas de prompting.} Clasificadas según la taxonomía de Schulhoff et al. (2024). Todos los
 agentes usan \textit{role prompting} y salida estructurada. \textit{Planificador:} (1)
@@ -121,14 +119,12 @@ D2). \textit{Verificador:} (4) \textbf{verificación con lista de chequeo}
 (\textit{self-verification}), contra respuestas válidas que no responden la pregunta (q03, q11,
 q09-p y q14-p del D2). \textit{Reportero:} (5) \textbf{refinamiento con retroalimentación}
 (\textit{self-refine}), contra cifras no respaldadas en el reporte (q13). Cada técnica se puede
-apagar por separado; la tabla mide el sistema sin cada una. Como control, un test reproduce los
-planes que fallaron en el D2 y comprueba que las herramientas los devuelven al agente que
-corresponde.
+apagar por separado; la tabla mide el sistema sin cada una. Un test comprueba que los planes que fallaron en el D2 vuelven al agente que corresponde.
 
 \head{Evaluación.} Las 15 preguntas del D1 (10 puntuales, 5 combinadas; in-sample) y 12 paráfrasis
-(5/7; externas). Todas las configuraciones reciben las mismas entradas y el mismo criterio:
-\textit{sql} (criterio del D1), \textit{answer} (respuesta final correcta) y \textit{e2e}
-(respuesta correcta y reporte fiel). \textit{Llamadas}: promedio de llamadas al modelo por pregunta.
+(5/7; externas). Mismas entradas y criterio para todas las configuraciones:
+\textit{sql} (criterio del D1), \textit{answer} (respuesta correcta), \textit{e2e} (respuesta correcta
+y reporte fiel); \textit{Llamadas}: promedio por pregunta.
 
 \head{Resultados.} \pendiente{completar con la tabla medida: agentes frente a D2 y baseline en
 combinadas y totales, y qué técnica pesa más en la ablación}.
@@ -142,9 +138,9 @@ trabaja a nivel de mes y el linter solo reconoce un patrón de error silencioso.
 predicado equivocado y un reporte fiel a ese resultado sigue sin detectarse. Cada pregunta cuesta más
 llamadas que en el D2. Ambos conjuntos son chicos y sintéticos.
 
-\head{Desviaciones declaradas.} Se agregaron el linter \texttt{revisar\_sql}, derivado del caso de
-falla del D2, y una regla al Reportero (no mencionar pasos ni SQL). La baseline y la solución del D2
-se vuelven a correr sin cambios en la misma sesión.
+\head{Desviaciones declaradas.} Nuevo linter \texttt{revisar\_sql} (del caso de falla del D2); dos
+reglas al Reportero (sin pasos ni SQL; cambio porcentual una vez) y una a la verificación de
+fidelidad, compartida con el D2 (cambio porcentual repetido), que no altera veredictos del D2.
 
 \head{Reproducción.} \texttt{notebooks/deliverable3\_demo.ipynb} en una T4 de Colab: demo con los
 mensajes entre agentes (\texttt{scripts/run\_agents.py}) y evaluación completa

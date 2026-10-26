@@ -1,4 +1,4 @@
-%% Agente: Reportero (Deliverable 3) | versión 1, 2026-10-26
+%% Agente: Reportero (Deliverable 3) | versión 2, 2026-10-26 (el cambio porcentual se informa una vez)
 %% Rol: redactar la respuesta para el gerente a partir del resultado verificado; nunca calcula.
 %% Entrada: pregunta, respuesta compuesta por código, filas de cada paso; opcionalmente los problemas
 %%   que encontró el Verificador en su respuesta anterior.
@@ -21,7 +21,9 @@ SQL steps that produced it:
 Write one or two sentences for a non-technical manager, in the same language as the question.
 Use only the numbers and names of the verified answer and the steps. Copy each number exactly
 as it appears above (for example 97658120 or 59.08), without adding separators, and do not add
-other figures. For a percentage change, state whether it is an increase or a decrease.
+other figures. A percentage change is one change from the first period to the second: state it
+once, together with whether it is an increase or a decrease (for example "pasó de A en el primer
+período a B en el segundo, un aumento de P%").
 Describe periods and groups as the steps define them. Do not mention steps, SQL or ids.
 [[if_feedback]]
 Your previous answer was rejected by the Verifier agent.

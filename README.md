@@ -141,8 +141,12 @@ promedio de llamadas al modelo por pregunta.
 
 - Nueva herramienta `revisar_sql`: un linter que detecta comparar `strftime('%Y-%m', ...)` con fechas
   completas, el error silencioso del caso de falla del D2 (q09).
-- El prompt del Reportero agrega una regla: no mencionar pasos, SQL ni ids (en el D2, "paso 1" en
-  q13 contaba como cifra no respaldada).
+- El prompt del Reportero agrega dos reglas: no mencionar pasos, SQL ni ids (en el D2, "paso 1" en
+  q13 contaba como cifra no respaldada) e informar un cambio porcentual una sola vez.
+- `verificar_fidelidad` (compartida por el D2 y el D3) rechaza un reporte que repite el cambio
+  porcentual, como si cada período hubiera crecido en esa cifra ("aumentaron un 60.13% entre marzo y
+  mayo y un 60.13% entre junio y agosto", visto en la prueba de q09-p). Aplicada a la corrida v3 del
+  D2, no cambia ningún veredicto.
 - Los ejemplos del Planificador y del Verificador usan la misma base, pero ninguna pregunta de los
   conjuntos de evaluación (un test lo comprueba). Cubren los mismos tipos de operación, por lo que su
   aporte se mide con la ablación `sin_few_shot`.
