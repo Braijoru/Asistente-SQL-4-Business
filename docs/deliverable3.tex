@@ -53,9 +53,10 @@
   \node[tool, below=0.6cm of a, xshift=-2.3cm] (t2) {revisar\_sql\\(linter)};
   \node[tool, below=0.6cm of a] (t3) {ejecutar\_sql\\(SQLite solo lectura)};
   \node[tool, below=0.6cm of a, xshift=2.3cm] (t4) {componer\\(operación determinista)};
-  \node[tool, above=0.6cm of v, xshift=-2.1cm] (t5) {forma\_resultado};
-  \node[tool, above=0.6cm of v] (t6) {revisar\_periodos};
-  \node[tool, above=0.6cm of v, xshift=2.1cm] (t7) {verificar\_fidelidad};
+  \node[tool, above=0.6cm of v, xshift=-3.0cm] (t5) {forma\_resultado};
+  \node[tool, above=0.6cm of v, xshift=-1.0cm] (t6) {revisar\_periodos};
+  \node[tool, above=0.6cm of v, xshift=1.0cm] (t8) {revisar\_filtros};
+  \node[tool, above=0.6cm of v, xshift=3.0cm] (t7) {verificar\_fidelidad};
 
   \draw[flow] (u) -- node[lab, above] {pregunta} (p);
   \draw[flow] (p) -- node[lab, above] {plan\\JSON} (a);
@@ -67,9 +68,10 @@
   \draw[use] (t2.north) -- node[lab, left, pos=0.4] {SQL / avisos} ($(a.south)+(-0.7,0)$);
   \draw[use] (t3.north) -- node[lab, left, pos=0.45] {SQL / filas} (a.south);
   \draw[use] (t4.north) -- node[lab, right, pos=0.4] {filas / respuesta} ($(a.south)+(0.7,0)$);
-  \draw[use] (t5.south) -- node[lab, left, pos=0.45] {forma} ($(v.north)+(-0.7,0)$);
-  \draw[use] (t6.south) -- node[lab, left, pos=0.5] {meses} (v.north);
-  \draw[use] (t7.south) -- node[lab, right, pos=0.45] {problemas} ($(v.north)+(0.7,0)$);
+  \draw[use] (t5.south) -- node[lab, left, pos=0.45] {forma} ($(v.north)+(-0.9,0)$);
+  \draw[use] (t6.south) -- node[lab, left, pos=0.5] {meses} ($(v.north)+(-0.3,0)$);
+  \draw[use] (t8.south) -- node[lab, right, pos=0.5] {nombres} ($(v.north)+(0.3,0)$);
+  \draw[use] (t7.south) -- node[lab, right, pos=0.45] {problemas} ($(v.north)+(0.9,0)$);
 
   \draw[back] ($(p.south west)+(0.15,0)$) .. controls +(-0.35,-0.55) and +(-0.75,0.05) .. node[lab, below left, pos=0.2] {JSON inválido:\\autorrevisión ($\leq$2)} ($(p.west)+(0,-0.12)$);
   \draw[back] ($(a.north east)+(-0.15,0)$) .. controls +(0.35,0.55) and +(0.75,-0.05) .. node[lab, right, pos=0.4] {corrige el paso\\($\leq$2 por plan)} ($(a.east)+(0,0.12)$);
@@ -77,9 +79,7 @@
   \draw[back] (v.south) .. controls +(-0.2,-0.8) and +(0.2,-0.8) .. node[lab, below] {problemas de fidelidad ($\leq$2)} (r.south);
   \draw[back] ($(v.south)+(0.6,0)$) -- ++(0,-1.42) -| node[lab, pos=0.27, below] {la respuesta no calza con lo que pide la pregunta (forma o períodos): replanificar ($\leq$1)} ($(p.south)+(0.3,0)$);
   \node[lab, text width=18.6cm, align=left, anchor=north west, font=\tiny] at ($(u.south west)+(0,-1.95)$)
-    {\textbf{Paradas:} el Verificador acepta cuando no encuentra discrepancias o cuando se agotan los presupuestos (si un plan nuevo falla, entrega la respuesta anterior);
-     sin respuesta previa, el Analista termina sin respuesta si el error persiste. Cajas azules: agentes (mismo modelo, prompt propio). Cajas grises: herramientas deterministas.
-     Flechas rojas: ciclos, con su presupuesto.};
+    {\textbf{Paradas:} el Verificador acepta sin discrepancias o con los presupuestos agotados (si un plan nuevo falla, entrega la respuesta anterior; sin ella, no hay respuesta). Azul: agentes (mismo modelo, prompt propio); gris: herramientas deterministas; rojo: ciclos y su presupuesto.};
 \end{tikzpicture}
 \end{center}
 \vspace{-8pt}
@@ -88,18 +88,16 @@
 \small
 
 \head{Tarea, continuidad y modelo.} La misma tarea, falla y criterio de salida correcta de los
-entregables anteriores. El sistema parte de la solución del D2: sus
-piezas deterministas (esquema enriquecido, SQL de solo lectura, composición, verificación de
-fidelidad) pasan a ser herramientas de los agentes, y el código del D2 no cambia. Los cuatro agentes
-usan el mismo modelo, \texttt{Qwen/Qwen2.5-Coder-3B-Instruct} (revisión \texttt{488639f}, NF4 de
+entregables anteriores. Las piezas deterministas del D2 pasan a ser herramientas de los
+agentes y el código del D2 no cambia. Los cuatro agentes usan el mismo modelo, \texttt{Qwen/Qwen2.5-Coder-3B-Instruct} (revisión \texttt{488639f}, NF4 de
 4 bits, decodificación greedy, Colab T4), con un prompt propio por agente en \texttt{prompts/}.
 
 \head{Agentes y división del trabajo.} El \textbf{Planificador} recibe la pregunta y el esquema y
 devuelve un plan JSON (pasos SQL y operación); si su JSON no es válido, revisa su propia salida. El
 \textbf{Analista SQL} ejecuta el plan con \texttt{revisar\_sql}, \texttt{ejecutar\_sql} y
 \texttt{componer}; solo llama al modelo cuando una herramienta falla, y entonces decide entre
-corregir el paso o devolver el plan con el motivo. El \textbf{Reportero} redacta una o dos oraciones
-desde el resultado verificado y las reescribe si el Verificador las rechaza. El \textbf{Verificador}
+corregir el paso o devolver el plan con el motivo. El \textbf{Reportero} redacta la respuesta desde el
+resultado verificado. El \textbf{Verificador}
 lee solo la pregunta, declara qué tipo de respuesta pide y qué períodos nombra, y sus herramientas
 lo comparan con lo calculado: si no calza, devuelve el caso al Planificador; si el reporte no es
 fiel, al Reportero; si no, acepta. Se divide así porque son cuatro competencias distintas
@@ -116,15 +114,17 @@ responder con una sola consulta una pregunta de varios valores. \textit{Analista
 \textbf{autocorrección guiada por herramientas} (\textit{self-debugging}): el error de SQLite, del
 linter o de la composición vuelve al modelo, contra los errores de fechas y sintaxis (q09, q10 del
 D2). \textit{Verificador:} (4) \textbf{verificación con lista de chequeo}
-(\textit{self-verification}), contra respuestas válidas que no responden la pregunta (q03, q11,
-q09-p y q14-p del D2). \textit{Reportero:} (5) \textbf{refinamiento con retroalimentación}
+(\textit{self-verification}) contrastada con herramientas (forma del resultado, pasos descartados,
+meses y su orden, nombres de la base citados en la pregunta), contra respuestas válidas que no
+responden la pregunta (q03, q11, q09-p y q14-p del D2). \textit{Reportero:} (5) \textbf{refinamiento con retroalimentación}
 (\textit{self-refine}), contra cifras no respaldadas en el reporte (q13). Cada técnica se puede
 apagar por separado; la tabla mide el sistema sin cada una. Un test comprueba que los planes que fallaron en el D2 vuelven al agente que corresponde.
 
 \head{Evaluación.} Las 15 preguntas del D1 (10 puntuales, 5 combinadas; in-sample) y 12 paráfrasis
 (5/7; externas). Mismas entradas y criterio para todas las configuraciones:
 \textit{sql} (criterio del D1), \textit{answer} (respuesta correcta), \textit{e2e} (respuesta correcta
-y reporte fiel); \textit{Llamadas}: promedio por pregunta.
+y reporte fiel); \textit{Llamadas}: promedio por pregunta. La primera corrida (v1) mostró fallos
+nuevos; v2 los corrige (ver desviaciones) y la tabla incluye ambas.
 
 \head{Resultados.} \pendiente{completar con la tabla medida: agentes frente a D2 y baseline en
 combinadas y totales, y qué técnica pesa más en la ablación}.
@@ -132,20 +132,19 @@ combinadas y totales, y qué técnica pesa más en la ablación}.
 \head{Caso de falla.} \pendiente{pregunta en la que el sistema completo falla, con su traza en
 \texttt{results/deliverable3/trazas/} y la explicación de por qué}.
 
-\head{Límites.} El Verificador depende de que un modelo de 3B clasifique bien la pregunta: una mala
-clasificación puede devolver un plan correcto y el nuevo puede ser peor. La revisión de períodos
-trabaja a nivel de mes y el linter solo reconoce un patrón de error silencioso. Un SQL válido con un
-predicado equivocado y un reporte fiel a ese resultado sigue sin detectarse. Cada pregunta cuesta más
-llamadas que en el D2. Ambos conjuntos son chicos y sintéticos.
+\head{Límites.} El Verificador depende de que un modelo de 3B clasifique bien la pregunta; los
+contrastes trabajan a nivel de mes y de nombres, y un predicado equivocado con un reporte fiel a su
+resultado sigue sin detectarse. Cuesta más llamadas que el D2. Los conjuntos son chicos y sintéticos.
 
-\head{Desviaciones declaradas.} Nuevo linter \texttt{revisar\_sql} (del caso de falla del D2); dos
-reglas al Reportero (sin pasos ni SQL; cambio porcentual una vez) y una a la verificación de
-fidelidad, compartida con el D2 (cambio porcentual repetido), que no altera veredictos del D2.
+\head{Desviaciones declaradas.} Nuevo linter \texttt{revisar\_sql} (del caso de falla del D2) y una
+regla de fidelidad compartida con el D2 (cambio porcentual repetido) que no altera sus veredictos.
+v2, tras la corrida v1: el Reportero recibe la indicación de cambio porcentual solo cuando aplica (en
+v1 la imitaba e inventaba cifras), el Verificador suma \texttt{revisar\_filtros}, orden de períodos y
+pasos descartados, y el Analista puede invertir dos pasos. Como v2 se ajustó mirando fallos de
+ambos conjuntos, las paráfrasis ya no son estrictamente externas.
 
-\head{Reproducción.} \texttt{notebooks/deliverable3\_demo.ipynb} en una T4 de Colab: demo con los
-mensajes entre agentes (\texttt{scripts/run\_agents.py}) y evaluación completa
-(\texttt{scripts/evaluate\_d3.py}, unas 2 horas), que escribe \texttt{results/deliverable3/},
-una traza por pregunta y esta tabla.
+\head{Reproducción.} \texttt{notebooks/deliverable3\_demo.ipynb} (Colab T4): demo
+(\texttt{run\_agents.py}) y evaluación (\texttt{evaluate\_d3.py}), con trazas en \texttt{results/}.
 \end{multicols}
 
 \vspace{-6pt}

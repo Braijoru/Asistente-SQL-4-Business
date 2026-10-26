@@ -35,6 +35,7 @@ DEFAULT_METRICS = ("sql", "answer", "report", "e2e")
 LABELS = {
     "baseline": "Prompt directo (baseline D1)",
     "d2": "Solución D2 (pipeline)",
+    "agentes_v1": "Agentes v1 (primera corrida)",
     "agentes": "Sistema de agentes (D3)",
     "sin_few_shot": "\\quad sin ejemplos (few-shot)",
     "sin_decomposition": "\\quad sin descomposición explícita",
@@ -168,27 +169,35 @@ def latex_table(summaries: dict[str, dict[str, Any]]) -> str:
         r"\textbf{Configuración} & sql & answer & e2e & sql & answer & e2e & \textbf{Llamadas} \\",
         r"\midrule",
     ]
-    for config in CONFIGS:
+    for config in ("baseline", "d2", "agentes_v1", "agentes") + ABLATIONS:
         if config not in summaries:
             continue
         row = [LABELS[config]]
         row += [cell(config, s, m) for s in ("official", "heldout") for m in ("sql", "answer", "e2e")]
         row.append(calls(config))
         lines.append(" & ".join(row) + r" \\")
-        if config in ("d2", "agentes"):
+        if config in ("d2", "agentes") or (config == "agentes_v1" and "agentes" not in summaries):
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines) + "\n"
 
 
-def load_results(directory: str | Path, configs: Iterable[str] = CONFIGS) -> dict[str, dict[str, Any]]:
-    """Summaries of the configurations already evaluated in ``directory``."""
+def load_results(
+    directory: str | Path, configs: Iterable[str] = CONFIGS, first_run: str | Path | None = None
+) -> dict[str, dict[str, Any]]:
+    """Summaries of the configurations already evaluated in ``directory``.
+
+    ``first_run`` is the folder of the first agent run (results/deliverable3_v1); its full agent
+    system is added as the row ``agentes_v1`` so the table shows both versions.
+    """
 
     summaries = {}
     for config in configs:
         path = Path(directory) / f"{config}.json"
         if path.exists():
             summaries[config] = json.loads(path.read_text(encoding="utf-8"))["summary"]
+    if first_run is not None and (Path(first_run) / "agentes.json").exists():
+        summaries["agentes_v1"] = json.loads((Path(first_run) / "agentes.json").read_text(encoding="utf-8"))["summary"]
     return summaries
 
 

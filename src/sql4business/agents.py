@@ -37,8 +37,10 @@ from .sql_tools import (
     grounded_schema,
     lint_sql,
     rows_to_json,
+    normalize_text,
     sales_date_range,
     strip_fences,
+    strip_literals,
 )
 
 
@@ -297,6 +299,55 @@ def uncovered_periods(
     return missing
 
 
+def _same_sql(left: str, right: str) -> bool:
+    return " ".join(strip_fences(left).rstrip(";").split()).lower() == " ".join(strip_fences(right).rstrip(";").split()).lower()
+
+
+def _references(steps: list[dict[str, Any]]) -> bool:
+    """Whether a later step reads an earlier one (FROM step_1)."""
+
+    for index, step in enumerate(steps):
+        tokens = {t.lower() for t in re.findall(r"[A-Za-z_]\w*", strip_literals(step["sql"]))}
+        if any(earlier["id"].lower() in tokens or f"step_{n + 1}" in tokens for n, earlier in enumerate(steps[:index])):
+            return True
+    return False
+
+
+def unused_steps(steps: list[dict[str, Any]], operation: str) -> list[str]:
+    """Steps of a direct plan whose result no later step reads: the direct operation drops them."""
+
+    if operation != "direct" or len(steps) < 2:
+        return []
+    unused = []
+    for index, step in enumerate(steps[:-1]):
+        names = {step["id"].lower(), f"step_{index + 1}"}
+        later = " ".join(strip_literals(s["sql"]).lower() for s in steps[index + 1:])
+        if not any(re.search(rf"\b{re.escape(name)}\b", later) for name in names):
+            unused.append(step["id"])
+    return unused
+
+
+def first_dates(sqls: list[str]) -> list[str | None]:
+    found = []
+    for sql in sqls:
+        dates = re.findall(r"'(\d{4}-\d{2}-\d{2})'", sql)
+        found.append(min(dates) if dates else None)
+    return found
+
+
+def missing_labels(question: str, sqls: list[str], labels: Iterable[str]) -> list[str]:
+    """Exact database labels named in the question that no executed step uses."""
+
+    text = f" {normalize_text(question)} "
+    used = f" {normalize_text(' '.join(sqls))} "
+    missing = []
+    for label in sorted(labels, key=len, reverse=True):
+        key = f" {normalize_text(label)} "
+        if key.strip() and key in text and key not in used and not any(key in f" {normalize_text(m)} " for m in missing):
+            missing.append(label)
+    return missing
+
+
 # --------------------------------------------------------------------------- agents
 
 
@@ -383,7 +434,16 @@ class AnalystAgent(_Agent):
             target = str(decision.get("step") or (failed if failed != "composition" else steps[-1]["id"]))
             index = next((i for i, step in enumerate(steps) if step["id"] == target), None)
             sql = decision.get("sql")
+            if action == "swap" and len(steps) == 2 and not _references(steps):
+                fixes += 1
+                trace.add(ANALYST, ANALYST, "invierte el orden de los pasos", {"error": error}, raw)
+                steps = [{**steps[1], "id": steps[0]["id"]}, {**steps[0], "id": steps[1]["id"]}]
+                continue
             if action == "fix" and index is not None and isinstance(sql, str) and sql.strip():
+                if _same_sql(sql, steps[index]["sql"]):
+                    reason = f"The SQL Analyst found no fix for {target} (error in {failed}: {error})"
+                    trace.add(ANALYST, PLANNER, "replanificar (corrección sin cambios)", reason, raw)
+                    return AnalystOutcome("replan", steps, reason=reason)
                 fixes += 1
                 trace.add(ANALYST, ANALYST, "corrige el paso", {"step": target, "sql": sql, "error": error}, raw)
                 steps[index] = {**steps[index], "sql": sql}
@@ -445,7 +505,7 @@ class ReporterAgent(_Agent):
             f"- {step['id']}: {step['purpose']} -> {json.dumps(rows_to_json(e.rows[:5]), ensure_ascii=False)}"
             for step, e in zip(steps, outcome.executions)
         )
-        flags = ("if_feedback",) if feedback else ()
+        flags = (("if_feedback",) if feedback else ()) + (("if_growth",) if outcome.composed.operation == "growth_pct" else ())
         raw = self.call_model(
             self.prompt(*flags, question=question, answer=json.dumps(outcome.composed.value, ensure_ascii=False),
                         evidence=evidence, feedback=feedback or "", previous_report=previous or ""),
@@ -511,7 +571,23 @@ class VerifierAgent(_Agent):
                 )
             for period in missing:
                 problems.append(f"The question names the period {period['from']} to {period['to']}, but no step filters those dates.")
-            checks = {"asks_for": analysis["asks_for"], "result_shapes": sorted(shapes), "uncovered_periods": missing}
+            dropped = unused_steps(outcome.steps, outcome.composed.operation)
+            if dropped:
+                problems.append(
+                    f"The direct operation only returns the last step, so the result of {', '.join(dropped)} is lost; "
+                    "if the answer needs those values, use a two-step operation."
+                )
+            if outcome.composed.operation == "growth_pct":
+                starts = first_dates(sqls)
+                if None not in starts and starts[0] > starts[1]:
+                    problems.append("growth_pct needs the earlier period in the first step and the later one in the second.")
+            labels = missing_labels(question, sqls, self.system.labels)
+            trace.add(VERIFIER, "herramienta:revisar_filtros", "llamada", {"question": question})
+            trace.add("herramienta:revisar_filtros", VERIFIER, "resultado", labels or "sin filtros faltantes")
+            for label in labels:
+                problems.append(f"The question names '{label}', but no step filters by it.")
+            checks = {"asks_for": analysis["asks_for"], "result_shapes": sorted(shapes), "uncovered_periods": missing,
+                      "unused_steps": dropped, "missing_labels": labels}
             if problems:
                 feedback = " ".join(problems)
                 fidelity = FidelityCheck(False, ["Not checked: the plan was sent back to the Planner."])
@@ -534,6 +610,21 @@ class VerifierAgent(_Agent):
             return Verdict("revise_report", feedback, fidelity, checks)
         trace.add(VERIFIER, USER, "respuesta final", {"report": report, "faithful": fidelity.faithful})
         return Verdict("accept", "", fidelity, checks)
+
+
+def text_labels(conn) -> set[str]:
+    """Exact text values stored in the database (product names, categories), dates excluded."""
+
+    labels: set[str] = set()
+    tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    for table in tables:
+        for column in conn.execute(f'PRAGMA table_info("{table}")').fetchall():
+            if (column[2] or "").upper() != "TEXT":
+                continue
+            for (value,) in conn.execute(f'SELECT DISTINCT "{column[1]}" FROM "{table}" WHERE "{column[1]}" IS NOT NULL LIMIT 200'):
+                if isinstance(value, str) and not ISO_DAY.match(value):
+                    labels.add(value)
+    return labels
 
 
 # --------------------------------------------------------------------------- system
@@ -571,6 +662,7 @@ class AgentSystem:
         conn = connect_read_only(self.db_path)
         try:
             self.date_range = sales_date_range(conn)
+            self.labels = text_labels(conn)
         finally:
             conn.close()
         self.planner = PlannerAgent(self)

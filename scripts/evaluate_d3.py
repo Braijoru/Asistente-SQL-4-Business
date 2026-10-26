@@ -65,7 +65,8 @@ def main() -> None:
         path.write_text(json.dumps(result, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         print(f"saved {path}")
 
-    summaries = load_results(args.output_dir)
+    first_run = ROOT / "results" / "deliverable3_v1"
+    summaries = load_results(args.output_dir, first_run=None if args.limit else first_run)
     print()
     for config, summary in summaries.items():
         cells = []

@@ -7,6 +7,9 @@ from helpers import DB, HELDOUT, OFFICIAL, ROOT, ScriptedGenerator, plan
 from oracle import OracleGenerator
 
 from sql4business.agents import (
+    first_dates,
+    missing_labels,
+    unused_steps,
     PROMPT_FILES,
     PROMPTS_DIR,
     TECHNIQUES,
@@ -62,7 +65,7 @@ class PromptFileTests(unittest.TestCase):
             self.assertNotIn("%%", template)
             for removed in [None, *TECHNIQUES]:
                 enabled = set(TECHNIQUES) - {removed}
-                for flags in (set(), {"if_feedback"}):
+                for flags in (set(), {"if_feedback"}, {"if_growth"}, {"if_feedback", "if_growth"}):
                     text = render_template(template, enabled | flags, **values)
                     self.assertNotIn("[[", text, (name, removed))
                     self.assertNotIn("{{", text, (name, removed))
@@ -212,6 +215,69 @@ class AgentSystemTests(unittest.TestCase):
             data = json.loads((Path(folder) / "t.json").read_text(encoding="utf-8"))
         self.assertEqual(data["trace"][0]["tipo"], "pregunta")
         self.assertIn("error", data)
+
+
+class Version2Tests(unittest.TestCase):
+    """Checks added after the first Colab run (results/deliverable3_v1/)."""
+
+    def test_unused_steps_order_and_missing_labels(self):
+        steps = [{"id": "step_1", "sql": "SELECT SUM(quantity) FROM sales"},
+                 {"id": "step_2", "sql": "SELECT SUM(quantity) FROM sales WHERE product_id IN (SELECT product_id FROM products WHERE category = 'Electronica')"}]
+        self.assertEqual(unused_steps(steps, "direct"), ["step_1"])
+        self.assertEqual(unused_steps(steps, "share_pct"), [])
+        chained = [steps[0], {"id": "step_2", "sql": "SELECT * FROM step_1"}]
+        self.assertEqual(unused_steps(chained, "direct"), [])
+        self.assertEqual(first_dates([Q2, Q1]), ["2026-06-01", "2026-03-01"])
+        labels = {"Alimentos", "Electronica", "Notebook 14 pulgadas"}
+        question = "¿Cuántas unidades se vendieron en la categoría Alimentos en agosto?"
+        self.assertEqual(missing_labels(question, ["SELECT SUM(quantity) FROM sales"], labels), ["Alimentos"])
+        self.assertEqual(missing_labels(question, ["SELECT 1 WHERE category = 'Alimentos'"], labels), [])
+
+    def test_verifier_sends_back_a_plan_that_drops_the_category(self):
+        question = "¿Cuántas unidades de la categoría Alimentos se vendieron en total?"
+        generator = ScriptedGenerator(
+            plan("SELECT SUM(quantity) FROM sales"), "Se vendieron 1655 unidades.", checklist("number"),
+            plan("SELECT SUM(s.quantity) FROM sales s JOIN products p ON s.product_id = p.product_id WHERE p.category = 'Alimentos'"),
+            "Se vendieron 334 unidades de Alimentos.",
+        )
+        result = AgentSystem(DB, generator).answer(question)
+        self.assertEqual(result.composed.value, 334)
+        self.assertIn("names 'Alimentos'", generator.prompts[3])
+
+    def test_verifier_sends_back_a_growth_with_periods_in_reverse(self):
+        generator = ScriptedGenerator(
+            plan(Q2, Q1, operation="growth_pct"), "Las ventas disminuyeron un 37.55%.",
+            checklist("percent_change", *GROWTH_PERIODS),
+            plan(Q1, Q2, operation="growth_pct"), "Las ventas aumentaron un 60.13%.",
+        )
+        result = AgentSystem(DB, generator).answer(GROWTH_QUESTION)
+        self.assertGreater(result.composed.value["growth_pct"], 0)
+        self.assertIn("earlier period in the first step", generator.prompts[3])
+
+    def test_analyst_can_swap_steps_and_gives_up_on_an_unchanged_fix(self):
+        total = "SELECT SUM(quantity) FROM sales"
+        part = "SELECT SUM(s.quantity) FROM sales s JOIN products p ON s.product_id = p.product_id WHERE p.category = 'Electronica'"
+        question = "¿Qué porcentaje de las unidades corresponde a Electronica?"
+        generator = ScriptedGenerator(plan(part, total, operation="share_pct"), json.dumps({"action": "swap"}),
+                                      "Electronica representa el 29.49% de las unidades.", checklist("share"))
+        result = AgentSystem(DB, generator).answer(question)
+        self.assertAlmostEqual(result.composed.value["share_pct"], 29.4864, places=3)
+        self.assertIn("invierte el orden de los pasos", [m.kind for m in result.trace.messages])
+        generator = ScriptedGenerator(plan(part, total, operation="share_pct"), fix("step_1", part),
+                                      plan(total, part, operation="share_pct"),
+                                      "Electronica representa el 29.49% de las unidades.", checklist("share"))
+        result = AgentSystem(DB, generator).answer(question)
+        self.assertIn("replanificar (corrección sin cambios)", [m.kind for m in result.trace.messages])
+
+    def test_growth_instruction_only_for_growth_answers(self):
+        ropa = plan("SELECT COUNT(*) FROM products WHERE category = 'Ropa'")
+        generator = ScriptedGenerator(ropa, "La categoría Ropa tiene 2 productos.", checklist("number"))
+        AgentSystem(DB, generator).answer("¿Cuántos productos tiene Ropa?")
+        self.assertNotIn("one percentage change", generator.prompts[1])
+        generator = ScriptedGenerator(plan(Q1, Q2, operation="growth_pct"), "Las ventas aumentaron un 60.13%.",
+                                      checklist("percent_change", *GROWTH_PERIODS))
+        AgentSystem(DB, generator).answer(GROWTH_QUESTION)
+        self.assertIn("one percentage change", generator.prompts[1])
 
 
 class Deliverable2FailureTests(unittest.TestCase):

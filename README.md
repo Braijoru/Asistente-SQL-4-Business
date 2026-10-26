@@ -69,6 +69,7 @@ flowchart LR
     A <-->|"filas / respuesta"| T4[(componer)]
     V <-->|"forma"| T5[(forma_resultado)]
     V <-->|"meses"| T6[(revisar_periodos)]
+    V <-->|"nombres"| T8[(revisar_filtros)]
     V <-->|"problemas"| T7[(verificar_fidelidad)]
 ```
 
@@ -77,9 +78,9 @@ flowchart LR
 | Agente | Prompt | Recibe | Devuelve | Herramientas | Decide / se detiene |
 |---|---|---|---|---|---|
 | Planificador | [`planificador.md`](prompts/planificador.md) | pregunta, esquema, retroalimentación opcional | plan JSON: pasos SQL y operación (+ lo que pide la respuesta y los períodos) | `leer_esquema` | entrega el plan al Analista; si su JSON es inválido, revisa su propia salida (≤ 2) |
-| Analista SQL | [`analista_sql.md`](prompts/analista_sql.md) | plan JSON | filas por paso y respuesta compuesta, o un motivo para replanificar | `revisar_sql`, `ejecutar_sql`, `componer` | solo llama al modelo si una herramienta falla: corrige el paso (≤ 2 por plan) o devuelve el plan al Planificador (≤ 2 replanificaciones) |
+| Analista SQL | [`analista_sql.md`](prompts/analista_sql.md) | plan JSON | filas por paso y respuesta compuesta, o un motivo para replanificar | `revisar_sql`, `ejecutar_sql`, `componer` | solo llama al modelo si una herramienta falla: corrige un paso, invierte el orden de dos pasos (≤ 2 por plan) o devuelve el plan al Planificador (≤ 2 replanificaciones) |
 | Reportero | [`reportero.md`](prompts/reportero.md) | pregunta, resultado verificado, problemas opcionales | una o dos oraciones en el idioma de la pregunta | — | entrega al Verificador; reescribe si el Verificador lo rechaza (≤ 2) |
-| Verificador | [`verificador.md`](prompts/verificador.md) | pregunta, resultado, reporte | veredicto: aceptar, revisar el reporte o replanificar | `forma_resultado`, `revisar_periodos`, `verificar_fidelidad` | el modelo lee solo la pregunta y declara qué tipo de respuesta pide y qué períodos nombra; si el resultado no calza, devuelve el caso al Planificador (≤ 1); si el reporte no es fiel, al Reportero; si no, acepta |
+| Verificador | [`verificador.md`](prompts/verificador.md) | pregunta, resultado, reporte | veredicto: aceptar, revisar el reporte o replanificar | `forma_resultado`, `revisar_periodos`, `revisar_filtros`, `verificar_fidelidad` | el modelo lee solo la pregunta y declara qué tipo de respuesta pide y qué períodos nombra; si el resultado no calza, devuelve el caso al Planificador (≤ 1); si el reporte no es fiel, al Reportero; si no, acepta |
 
 Por qué esta división: entender la pregunta, interactuar con la base, redactar y juzgar son
 competencias distintas, y quien juzga no debe ser quien produjo el trabajo. Cuando se agotan los
@@ -97,7 +98,7 @@ archivo del prompt (o como una rama del código) y se puede apagar por separado:
 | Few-shot: tres ejemplos resueltos que no pertenecen a ningún conjunto de evaluación [8] | Planificador | listados en vez del primero (q03), `strftime('%Q')` (q10) | `sin_few_shot` |
 | Descomposición explícita (*plan-and-solve*): qué debe contener la respuesta y los períodos antes del SQL [9] | Planificador | una sola consulta para preguntas de varios valores (q11, q09-p) | `sin_decomposition` |
 | Autocorrección guiada por herramientas (*self-debugging*): el error de SQLite, del linter o de la composición vuelve al modelo [10] | Analista SQL | filtros de fecha y sintaxis (q09, q10) | `sin_self_correction` |
-| Verificación con lista de chequeo (*self-verification*) [11] | Verificador | resultados válidos que no responden la pregunta (q03, q11, q09-p, q14-p) | `sin_critic` |
+| Verificación con lista de chequeo (*self-verification*) contrastada con herramientas: forma del resultado, pasos descartados, meses y su orden, nombres de la base citados en la pregunta [11] | Verificador | resultados válidos que no responden la pregunta (q03, q11, q09-p, q14-p) | `sin_critic` |
 | Refinamiento con retroalimentación (*self-refine*) [12] | Reportero | cifras no respaldadas en el reporte (q13) | `sin_report_refine` |
 
 `tests/test_agents.py` reproduce los planes que fallaron en la corrida v3 del D2 y comprueba que las
@@ -119,8 +120,49 @@ Ocho configuraciones sobre las mismas 27 preguntas y con el mismo criterio (`sql
 `agentes` (sistema completo) y una ablación por técnica (`sin_<técnica>`). También se informa el
 promedio de llamadas al modelo por pregunta.
 
-**Resultados:** _pendientes de la corrida en Colab_ (`results/deliverable3/*.json` y la tabla
-[`docs/deliverable3_results.tex`](docs/deliverable3_results.tex)).
+#### Corrida v1 (26-10-2026, Colab T4, commit `351d435`)
+
+Resultados en [`results/deliverable3_v1/`](results/deliverable3_v1/), con una traza por pregunta.
+`baseline` y `d2` de esa sesión siguen vigentes (su código no cambió) y se copian en
+`results/deliverable3/`.
+
+| Configuración | Oficial sql | answer | e2e | Paráfrasis sql | answer | e2e | Llamadas |
+|---|---|---|---|---|---|---|---|
+| Baseline D1 | 7/15 | 8/15 | — | 3/12 | 5/12 | — | 1,0 |
+| Solución D2 | 11/15 | 11/15 | 10/15 | 8/12 | 10/12 | 10/12 | 2,1 |
+| Agentes v1 | 11/15 | 11/15 | 9/15 | 9/12 | 11/12 | 9/12 | 3,8 |
+| sin few-shot | 9/15 | 10/15 | 9/15 | 8/12 | 10/12 | 9/12 | 3,7 |
+| sin descomposición | 11/15 | 13/15 | 11/15 | 6/12 | 8/12 | 7/12 | 3,6 |
+| sin autocorrección | 11/15 | 11/15 | 9/15 | 9/12 | 11/12 | 9/12 | 3,6 |
+| sin verificación crítica | 11/15 | 11/15 | 9/15 | 8/12 | 10/12 | 9/12 | 2,4 |
+| sin refinamiento | 11/15 | 11/15 | 9/15 | 9/12 | 11/12 | 8/12 | 3,4 |
+
+Qué mostró v1: los agentes resolvieron fallos del D2 (q03, q09, q09-p, q14-p), pero aparecieron
+fallos nuevos:
+
+- **El Reportero inventó cifras** en q06, q08, q08-p y q14-en (períodos y porcentajes que no
+  existen). Imitaba el ejemplo de cambio porcentual que se le agregó a todas las preguntas, y al
+  corregir copiaba su respuesta rechazada.
+- **Planes que el Verificador no podía ver:** a q04 le faltó el filtro de categoría; q12 puso agosto
+  antes que marzo y calculó una caída; q11 calculó el total y la parte pero el plan directo descartó
+  el total.
+- En q11-p el Analista no supo ordenar total y parte, y en q10 el Verificador clasificó mal la pregunta.
+
+#### Versión 2 (cambios tras v1)
+
+- **Reportero (v3 del prompt):** la indicación de cambio porcentual solo aparece cuando la respuesta
+  es un cambio porcentual, y al corregir no recibe la respuesta rechazada, solo los problemas.
+- **Verificador:** nueva herramienta `revisar_filtros` (nombres exactos de la base que la pregunta
+  menciona y ningún paso usa), control de orden de los períodos en un cambio porcentual y de pasos
+  descartados por un plan directo, y dos ejemplos más en su lista de chequeo.
+- **Analista:** acción `swap` para invertir dos pasos, y deja de insistir si su corrección no cambia
+  el SQL.
+
+Antes de correr v2 se reprodujeron sin GPU los planes de v1 con las herramientas nuevas: marcan los
+7 planes equivocados y ninguno de los correctos.
+
+**Resultados v2:** _pendientes de la corrida en Colab_ (`results/deliverable3/*.json` y la tabla
+[`docs/deliverable3_results.tex`](docs/deliverable3_results.tex), que incluye la fila de v1).
 
 ### Cómo reproducir el Deliverable 3
 
@@ -150,8 +192,10 @@ promedio de llamadas al modelo por pregunta.
 - Los ejemplos del Planificador y del Verificador usan la misma base, pero ninguna pregunta de los
   conjuntos de evaluación (un test lo comprueba). Cubren los mismos tipos de operación, por lo que su
   aporte se mide con la ablación `sin_few_shot`.
-- La baseline y la solución del D2 se vuelven a correr sin cambios en la misma sesión, para comparar
+- La baseline y la solución del D2 se volvieron a correr sin cambios en la sesión de v1, para comparar
   todo con las mismas versiones.
+- Los cambios de v2 se definieron mirando fallos de ambos conjuntos; por eso, para v2, las
+  paráfrasis dejan de ser un conjunto estrictamente externo. Los resultados de v1 se conservan.
 
 ## Sistema (Deliverable 2)
 
