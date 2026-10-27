@@ -336,7 +336,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertNotIn("e2e", summaries["baseline"]["official"])
         self.assertEqual(summaries["sin_critic"]["official"]["model_calls"], 2.0)
         table = latex_table(summaries)
-        self.assertIn("Sistema de agentes (D3) & 4/4 & 4/4 & 4/4", table)
+        self.assertIn("Sistema de agentes v2 (D3) & 4/4 & 4/4 & 4/4", table)
         self.assertEqual(table.count(r"\\"), len(CONFIGS) + 2)
 
 

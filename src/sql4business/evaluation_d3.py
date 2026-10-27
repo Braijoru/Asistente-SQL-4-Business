@@ -36,7 +36,7 @@ LABELS = {
     "baseline": "Prompt directo (baseline D1)",
     "d2": "Solución D2 (pipeline)",
     "agentes_v1": "Agentes v1 (primera corrida)",
-    "agentes": "Sistema de agentes (D3)",
+    "agentes": "Sistema de agentes v2 (D3)",
     "sin_few_shot": "\\quad sin ejemplos (few-shot)",
     "sin_decomposition": "\\quad sin descomposición explícita",
     "sin_self_correction": "\\quad sin autocorrección del Analista",

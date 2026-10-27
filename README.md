@@ -161,8 +161,54 @@ fallos nuevos:
 Antes de correr v2 se reprodujeron sin GPU los planes de v1 con las herramientas nuevas: marcan los
 7 planes equivocados y ninguno de los correctos.
 
-**Resultados v2:** _pendientes de la corrida en Colab_ (`results/deliverable3/*.json` y la tabla
-[`docs/deliverable3_results.tex`](docs/deliverable3_results.tex), que incluye la fila de v1).
+#### Corrida v2 (27-10-2026, Colab T4, commit `087cffc`): versión final
+
+Resultados en [`results/deliverable3/`](results/deliverable3/), con una traza por pregunta en
+`trazas/` y las de la demo en `demo/`. La tabla del PDF
+([`docs/deliverable3_results.tex`](docs/deliverable3_results.tex)) se genera desde esos archivos.
+
+| Configuración | Oficial sql | answer | e2e | Paráfrasis sql | answer | e2e | Llamadas |
+|---|---|---|---|---|---|---|---|
+| Baseline D1 | 7/15 | 8/15 | — | 3/12 | 5/12 | — | 1,0 |
+| Solución D2 | 11/15 | 11/15 | 10/15 | 8/12 | 10/12 | 10/12 | 2,1 |
+| Agentes v1 | 11/15 | 11/15 | 9/15 | 9/12 | 11/12 | 9/12 | 3,8 |
+| **Agentes v2** | **11/15** | **12/15** | **12/15** | **9/12** | **11/12** | **11/12** | 3,6 |
+| sin few-shot | 9/15 | 10/15 | 10/15 | 8/12 | 10/12 | 10/12 | 3,4 |
+| sin descomposición | 10/15 | 13/15 | 13/15 | 6/12 | 8/12 | 8/12 | 3,3 |
+| sin autocorrección | 11/15 | 12/15 | 12/15 | 9/12 | 11/12 | 11/12 | 3,5 |
+| sin verificación crítica | 11/15 | 11/15 | 11/15 | 8/12 | 10/12 | 10/12 | 2,1 |
+| sin refinamiento | 11/15 | 12/15 | 12/15 | 9/12 | 11/12 | 10/12 | 3,6 |
+
+- **Mejora frente al D2 (`e2e`):** 12/15 contra 10/15 en el set oficial y 11/12 contra 10/12 en
+  paráfrasis. En preguntas combinadas, 3/5 contra 2/5 y 6/7 contra 5/7.
+- **Ablación:**
+  - Sin few-shot se pierden 2 preguntas oficiales y 1 paráfrasis.
+  - Sin el Verificador se pierde 1 en cada conjunto: sus replanificaciones corrigieron q11 y q08-p.
+  - Sin refinamiento se pierde un reporte (q10-p).
+  - La descomposición suma 3 combinadas en paráfrasis (q09-p, q10-p, q12-en), pero cuesta una
+    puntual oficial (q04).
+  - La autocorrección del Analista no cambia nada: en las 27 preguntas el Analista consultó al
+    modelo solo 2 veces, porque con el esquema enriquecido casi no hubo errores de SQL.
+- **Costo:** 3,6 llamadas y unos 33 s por pregunta, contra 2,1 llamadas y 15 s del D2.
+
+#### Caso de falla (v2): q12
+
+> ¿El ingreso de agosto de 2026 fue mayor o menor que el de marzo de 2026, y en qué porcentaje?
+
+- **Qué hace el sistema:** el Planificador ordena los pasos como los nombra la pregunta (agosto antes
+  que marzo), y el código calcula una caída de 37,14 % en vez de un alza de 59,08 %.
+- **Qué detecta:** `revisar_periodos` marca el orden inverso, y el Verificador devuelve el plan con
+  el motivo exacto.
+- **Por qué igual falla:** el Planificador repite el mismo plan. La decodificación es greedy y el
+  sesgo por el orden en que la pregunta nombra los meses es fuerte. Agotado el reintento del
+  Verificador, el sistema acepta.
+- **Otros casos con el mismo patrón:** q04 (falta el filtro `Alimentos`) y q11-p (total y parte en
+  orden inverso). En los tres, el problema se detecta pero el agente que debe corregirlo ignora la
+  retroalimentación.
+
+Traza: [`results/deliverable3/trazas/official_q12.json`](results/deliverable3/trazas/official_q12.json).
+En q10 el Verificador lee la pregunta como un listado, así que su devolución no apunta al error real
+(el plan calcula un crecimiento en vez de comparar líderes).
 
 ### Cómo reproducir el Deliverable 3
 

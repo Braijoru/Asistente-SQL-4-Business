@@ -92,56 +92,53 @@ entregables anteriores. Las piezas deterministas del D2 pasan a ser herramientas
 agentes y el código del D2 no cambia. Los cuatro agentes usan el mismo modelo, \texttt{Qwen/Qwen2.5-Coder-3B-Instruct} (revisión \texttt{488639f}, NF4 de
 4 bits, decodificación greedy, Colab T4), con un prompt propio por agente en \texttt{prompts/}.
 
-\head{Agentes y división del trabajo.} El \textbf{Planificador} recibe la pregunta y el esquema y
-devuelve un plan JSON (pasos SQL y operación); si su JSON no es válido, revisa su propia salida. El
-\textbf{Analista SQL} ejecuta el plan con \texttt{revisar\_sql}, \texttt{ejecutar\_sql} y
-\texttt{componer}; solo llama al modelo cuando una herramienta falla, y entonces decide entre
-corregir el paso o devolver el plan con el motivo. El \textbf{Reportero} redacta la respuesta desde el
-resultado verificado. El \textbf{Verificador}
-lee solo la pregunta, declara qué tipo de respuesta pide y qué períodos nombra, y sus herramientas
-lo comparan con lo calculado: si no calza, devuelve el caso al Planificador; si el reporte no es
-fiel, al Reportero; si no, acepta. Se divide así porque son cuatro competencias distintas
-(entender la pregunta, interactuar con la base, redactar y juzgar) y porque quien juzga no debe ser
-quien produjo el trabajo.
+\head{Agentes y división del trabajo.} El \textbf{Planificador} convierte la pregunta en un plan
+JSON (pasos SQL y operación) y revisa su propia salida si el JSON no es válido. El \textbf{Analista
+SQL} ejecuta el plan con sus herramientas y solo llama al modelo cuando una falla, para corregir un
+paso, invertir dos o devolver el plan. El \textbf{Reportero} redacta la respuesta. El
+\textbf{Verificador} lee solo la pregunta, declara qué tipo de respuesta pide y qué períodos nombra,
+y sus herramientas lo contrastan con lo calculado: devuelve el plan, el reporte o acepta. Son cuatro
+competencias distintas (entender, ejecutar, redactar, juzgar) y quien juzga no produce el trabajo.
 
-\head{Técnicas de prompting.} Clasificadas según la taxonomía de Schulhoff et al. (2024). Todos los
-agentes usan \textit{role prompting} y salida estructurada. \textit{Planificador:} (1)
-\textbf{few-shot}, tres ejemplos resueltos sobre la misma base que no pertenecen a ningún conjunto
-de evaluación, contra la falla de devolver listados en vez del primero o de usar
-\texttt{strftime('\%Q')}; (2) \textbf{descomposición} (\textit{plan-and-solve}): antes del SQL
-declara qué debe contener la respuesta y cada período como rango de fechas, contra la falla de
-responder con una sola consulta una pregunta de varios valores. \textit{Analista:} (3)
-\textbf{autocorrección guiada por herramientas} (\textit{self-debugging}): el error de SQLite, del
-linter o de la composición vuelve al modelo, contra los errores de fechas y sintaxis (q09, q10 del
-D2). \textit{Verificador:} (4) \textbf{verificación con lista de chequeo}
-(\textit{self-verification}) contrastada con herramientas (forma del resultado, pasos descartados,
-meses y su orden, nombres de la base citados en la pregunta), contra respuestas válidas que no
-responden la pregunta (q03, q11, q09-p y q14-p del D2). \textit{Reportero:} (5) \textbf{refinamiento con retroalimentación}
-(\textit{self-refine}), contra cifras no respaldadas en el reporte (q13). Cada técnica se puede
-apagar por separado; la tabla mide el sistema sin cada una. Un test comprueba que los planes que fallaron en el D2 vuelven al agente que corresponde.
+\head{Técnicas de prompting} (taxonomía de Schulhoff et al., 2024; todos usan \textit{role
+prompting} y salida estructurada). \textit{Planificador:} (1) \textbf{few-shot}, tres ejemplos fuera
+de los conjuntos de evaluación, contra listados en vez del primero y \texttt{strftime('\%Q')}; (2)
+\textbf{descomposición} (\textit{plan-and-solve}): lo que pide la respuesta y los períodos antes del
+SQL, contra una sola consulta para preguntas de varios valores. \textit{Analista:} (3)
+\textbf{autocorrección guiada por herramientas} (\textit{self-debugging}), contra errores de fechas y
+sintaxis (q09, q10 del D2). \textit{Verificador:} (4) \textbf{verificación con lista de chequeo}
+(\textit{self-verification}) contrastada con herramientas, contra respuestas válidas que no responden
+la pregunta (q03, q11, q09-p, q14-p del D2). \textit{Reportero:} (5) \textbf{refinamiento con
+retroalimentación} (\textit{self-refine}), contra cifras no respaldadas (q13). Cada técnica se apaga
+por separado en la ablación.
 
-\head{Evaluación.} Las 15 preguntas del D1 (10 puntuales, 5 combinadas; in-sample) y 12 paráfrasis
-(5/7; externas). Mismas entradas y criterio para todas las configuraciones:
-\textit{sql} (criterio del D1), \textit{answer} (respuesta correcta), \textit{e2e} (respuesta correcta
-y reporte fiel); \textit{Llamadas}: promedio por pregunta. La primera corrida (v1) mostró fallos
-nuevos; v2 los corrige (ver desviaciones) y la tabla incluye ambas.
+\head{Evaluación.} 15 preguntas del D1 (10 puntuales, 5 combinadas; in-sample) y 12 paráfrasis
+(5/7). Mismo criterio para todos: \textit{sql} (D1), \textit{answer} (respuesta correcta),
+\textit{e2e} (y reporte fiel). La tabla incluye la primera corrida (v1).
 
-\head{Resultados.} \pendiente{completar con la tabla medida: agentes frente a D2 y baseline en
-combinadas y totales, y qué técnica pesa más en la ablación}.
+\head{Resultados.} El sistema (v2) responde con reporte fiel 12/15 oficiales y 11/12
+paráfrasis, frente a 10/15 y 10/12 del D2; en combinadas, 3/5 y 6/7 frente a 2/5 y 5/7. En la
+ablación, sin few-shot se pierden 2 y 1 preguntas; sin el Verificador, 1 y 1 (corrigió q11 y
+q08-p); sin refinamiento, un reporte (q10-p). La descomposición suma 3 combinadas externas pero
+cuesta una puntual oficial (q04). La autocorrección no cambia nada: el Analista consultó al modelo
+2 veces en 27 preguntas, porque casi no hubo errores de SQL. Costo: 3,6 llamadas y 33\,s por
+pregunta (D2: 2,1 y 15\,s).
 
-\head{Caso de falla.} \pendiente{pregunta en la que el sistema completo falla, con su traza en
-\texttt{results/deliverable3/trazas/} y la explicación de por qué}.
+\head{Caso de falla: q12.} El Planificador ordena los pasos como los nombra la pregunta (agosto
+antes que marzo) y el código calcula una caída de 37,14\,\% en vez de un alza de 59,08\,\%. El
+Verificador lo detecta y lo devuelve con el motivo exacto, pero el Planificador, con decodificación
+greedy y un sesgo fuerte por el orden de la pregunta, repite el mismo plan; agotado el reintento, el
+sistema acepta. En q04 (falta el filtro \textit{Alimentos}) pasa lo mismo: detectar no basta si el
+agente que corrige ignora la retroalimentación. Traza en \texttt{results/deliverable3/trazas/}.
 
-\head{Límites.} El Verificador depende de que un modelo de 3B clasifique bien la pregunta; los
-contrastes trabajan a nivel de mes y de nombres, y un predicado equivocado con un reporte fiel a su
-resultado sigue sin detectarse. Cuesta más llamadas que el D2. Los conjuntos son chicos y sintéticos.
+\head{Límites.} El Verificador depende de que el modelo clasifique bien la pregunta (en q10 la
+lee como lista); sus contrastes son de mes y de nombres. Los conjuntos son chicos y sintéticos.
 
-\head{Desviaciones declaradas.} Nuevo linter \texttt{revisar\_sql} (del caso de falla del D2) y una
-regla de fidelidad compartida con el D2 (cambio porcentual repetido) que no altera sus veredictos.
-v2, tras la corrida v1: el Reportero recibe la indicación de cambio porcentual solo cuando aplica (en
-v1 la imitaba e inventaba cifras), el Verificador suma \texttt{revisar\_filtros}, orden de períodos y
-pasos descartados, y el Analista puede invertir dos pasos. Como v2 se ajustó mirando fallos de
-ambos conjuntos, las paráfrasis ya no son estrictamente externas.
+\head{Desviaciones declaradas.} Nuevo linter \texttt{revisar\_sql} y una regla de fidelidad compartida
+con el D2 que no altera sus veredictos. Tras v1 (Reportero que inventaba cifras al imitar un
+ejemplo; planes sin filtro o en orden inverso): el ejemplo solo aparece si aplica, el Verificador suma
+\texttt{revisar\_filtros}, orden y pasos descartados, y el Analista puede invertir pasos. Como v2 se
+ajustó mirando ambos conjuntos, las paráfrasis ya no son estrictamente externas.
 
 \head{Reproducción.} \texttt{notebooks/deliverable3\_demo.ipynb} (Colab T4): demo
 (\texttt{run\_agents.py}) y evaluación (\texttt{evaluate\_d3.py}), con trazas en \texttt{results/}.

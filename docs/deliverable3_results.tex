@@ -1,4 +1,3 @@
-% Tabla provisoria: scripts/evaluate_d3.py la reemplaza con los resultados de la corrida v2.
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
 & \multicolumn{3}{c}{\textbf{Set oficial (15)}} & \multicolumn{3}{c}{\textbf{Paráfrasis (12)}} & \\
@@ -9,13 +8,12 @@ Prompt directo (baseline D1) & 7/15 & 8/15 & -- & 3/12 & 5/12 & -- & 1.0 \\
 Solución D2 (pipeline) & 11/15 & 11/15 & 10/15 & 8/12 & 10/12 & 10/12 & 2.1 \\
 \addlinespace
 Agentes v1 (primera corrida) & 11/15 & 11/15 & 9/15 & 9/12 & 11/12 & 9/12 & 3.8 \\
+Sistema de agentes v2 (D3) & 11/15 & 12/15 & 12/15 & 9/12 & 11/12 & 11/12 & 3.6 \\
 \addlinespace
-Sistema de agentes (D3) & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
-\addlinespace
-\quad sin ejemplos (few-shot) & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
-\quad sin descomposición explícita & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
-\quad sin autocorrección del Analista & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
-\quad sin verificación crítica & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
-\quad sin refinamiento del reporte & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} & \textcolor{red}{?} \\
+\quad sin ejemplos (few-shot) & 9/15 & 10/15 & 10/15 & 8/12 & 10/12 & 10/12 & 3.4 \\
+\quad sin descomposición explícita & 10/15 & 13/15 & 13/15 & 6/12 & 8/12 & 8/12 & 3.3 \\
+\quad sin autocorrección del Analista & 11/15 & 12/15 & 12/15 & 9/12 & 11/12 & 11/12 & 3.5 \\
+\quad sin verificación crítica & 11/15 & 11/15 & 11/15 & 8/12 & 10/12 & 10/12 & 2.1 \\
+\quad sin refinamiento del reporte & 11/15 & 12/15 & 12/15 & 9/12 & 11/12 & 10/12 & 3.6 \\
 \bottomrule
 \end{tabular}
