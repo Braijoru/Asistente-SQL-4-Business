@@ -202,9 +202,12 @@
       "de": "herramienta:forma_resultado",
       "para": "Verificador",
       "tipo": "resultado",
-      "contenido": [
-        "name"
-      ]
+      "contenido": {
+        "formas": [
+          "name"
+        ],
+        "pasos_descartados": []
+      }
     },
     {
       "n": 16,
@@ -220,7 +223,7 @@
       "de": "herramienta:revisar_periodos",
       "para": "Verificador",
       "tipo": "resultado",
-      "contenido": "todos cubiertos"
+      "contenido": "todos cubiertos, en orden"
     },
     {
       "n": 18,

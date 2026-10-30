@@ -303,9 +303,12 @@
       "de": "herramienta:forma_resultado",
       "para": "Verificador",
       "tipo": "resultado",
-      "contenido": [
-        "percent_change"
-      ]
+      "contenido": {
+        "formas": [
+          "percent_change"
+        ],
+        "pasos_descartados": []
+      }
     },
     {
       "n": 20,
@@ -330,7 +333,7 @@
       "de": "herramienta:revisar_periodos",
       "para": "Verificador",
       "tipo": "resultado",
-      "contenido": "todos cubiertos"
+      "contenido": "todos cubiertos, en orden"
     },
     {
       "n": 22,
