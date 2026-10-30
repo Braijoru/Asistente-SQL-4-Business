@@ -253,6 +253,10 @@ class Version2Tests(unittest.TestCase):
         result = AgentSystem(DB, generator).answer(GROWTH_QUESTION)
         self.assertGreater(result.composed.value["growth_pct"], 0)
         self.assertIn("earlier period in the first step", generator.prompts[3])
+        # The order problem is reported by revisar_periodos, so the trace shows which tool found it.
+        outputs = [m.content for m in result.trace.messages
+                   if m.sender == "herramienta:revisar_periodos"]
+        self.assertEqual(outputs, [{"sin_cubrir": [], "orden_invertido": True}])
 
     def test_analyst_can_swap_steps_and_gives_up_on_an_unchanged_fix(self):
         total = "SELECT SUM(quantity) FROM sales"
@@ -338,6 +342,34 @@ class EvaluationTests(unittest.TestCase):
         table = latex_table(summaries)
         self.assertIn("Sistema de agentes v2 (D3) & 4/4 & 4/4 & 4/4", table)
         self.assertEqual(table.count(r"\\"), len(CONFIGS) + 2)
+
+
+class RecordedTraceTests(unittest.TestCase):
+    """Replays the v2 run from the model outputs saved in its traces (no GPU)."""
+
+    # Tool outputs whose logging gained detail after v2 (pasos descartados, orden de los períodos).
+    LOGGING_ONLY = {"herramienta:forma_resultado", "herramienta:revisar_periodos"}
+
+    @staticmethod
+    def _key(message):
+        return (message["de"], message["para"], message["tipo"],
+                json.dumps(message["contenido"], ensure_ascii=False, sort_keys=True, default=str))
+
+    def test_current_code_reproduces_every_v2_decision(self):
+        paths = sorted((ROOT / "results" / "deliverable3" / "trazas").glob("*.json"))
+        self.assertEqual(len(paths), 27)
+        for path in paths:
+            with self.subTest(trace=path.name):
+                recorded = json.loads(path.read_text(encoding="utf-8"))
+                outputs = [m["salida_modelo"] for m in recorded["trace"] if "salida_modelo" in m]
+                self.assertEqual(len(outputs), recorded["model_calls"])
+                try:
+                    messages = AgentSystem(DB, ScriptedGenerator(*outputs)).answer(recorded["question"]).trace.to_list()
+                except AgentFailure as failure:
+                    messages = failure.trace.to_list()
+                expected = [self._key(m) for m in recorded["trace"] if m["de"] not in self.LOGGING_ONLY]
+                replayed = [self._key(m) for m in messages if m["de"] not in self.LOGGING_ONLY]
+                self.assertEqual(replayed, expected)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,14 @@
 %%   primero), revisar_filtros (nombres exactos de la base que la pregunta menciona y ningún paso usa),
 %%   verificar_fidelidad (cifras, dirección del cambio y "cambió/no cambió" del reporte).
 %% Historial: v2 agrega revisar_filtros, el control de orden y de pasos descartados, y dos ejemplos
-%%   (share, same_or_changed) tras la corrida v1.
-%% Salida: veredicto JSON {accion: aceptar | revisar_reporte | replanificar, retroalimentación}.
+%%   (share, same_or_changed) tras la corrida v1. 2026-10-29: solo se corrige este encabezado (la
+%%   salida del modelo estaba mal descrita); el texto que recibe el modelo no cambió.
+%% Salida del modelo: la lista de chequeo JSON {asks_for, periods}, leída solo de la pregunta.
+%% Salida del agente: un veredicto (aceptar | revisar_reporte | replanificar) con la retroalimentación
+%%   para el Reportero o el Planificador. El veredicto lo fija una regla sobre lo que observan las
+%%   herramientas: si la lista de chequeo del modelo no calza con forma_resultado, revisar_periodos o
+%%   revisar_filtros, replanifica; si verificar_fidelidad encuentra problemas, revisa el reporte; si
+%%   no, acepta.
 %% Técnica: [[critic]] verificación con lista de chequeo (self-verification): el modelo lee solo la
 %%   pregunta y declara qué tipo de respuesta pide y qué períodos nombra; las herramientas lo
 %%   comparan con lo que el sistema realmente calculó. Una discrepancia devuelve el caso al

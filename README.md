@@ -87,6 +87,26 @@ competencias distintas, y quien juzga no debe ser quien produjo el trabajo. Cuan
 presupuestos, el sistema entrega la mejor respuesta anterior (estado `respaldo`) o declara que no
 pudo responder. Código: [`src/sql4business/agents.py`](src/sql4business/agents.py).
 
+#### Qué decide cada agente y quién toma la decisión
+
+Cada agente decide qué pasa después a partir de lo que observa. En algunos casos la decisión la toma
+el modelo; en otros, una regla fija aplicada a lo que observaron el modelo y las herramientas. Se
+separan para no atribuirle al modelo decisiones que toma el código.
+
+| Agente | Qué observa | Decisión | Quién decide |
+|---|---|---|---|
+| Planificador | pregunta, esquema y, si vuelve, el motivo del rechazo y su plan anterior | qué pasos SQL y qué operación de composición usar (`direct`, `growth_pct`, `share_pct`, `compare_equal`, `filter_then_rank`); esa operación define qué hará `componer` | modelo |
+| Planificador | error de validación de su propio JSON | revisar su salida (≤ 2) | regla (el validador falla) |
+| Analista SQL | error de `revisar_sql`, `ejecutar_sql` o `componer` | corregir un paso, invertir dos pasos o devolver el plan con un motivo | modelo (`action`: `fix`, `swap`, `replan`) |
+| Analista SQL | todas las herramientas sin error | entregar el resultado al Reportero sin llamar al modelo | regla |
+| Reportero | resultado verificado y, si vuelve, los problemas encontrados | qué cifras citar y cómo redactarlas; al volver, reescribir su propia salida | modelo |
+| Verificador | la pregunta (sin ver el plan) | qué tipo de respuesta pide y qué períodos nombra (lista de chequeo) | modelo |
+| Verificador | la lista de chequeo frente a `forma_resultado`, `revisar_periodos`, `revisar_filtros` y `verificar_fidelidad` | replanificar, devolver el reporte o aceptar | regla sobre esas observaciones |
+
+En la corrida v2, el Analista consultó al modelo 2 veces en 27 preguntas: con el esquema enriquecido
+casi no hubo errores de SQL que decidir. Por eso su técnica no se puede medir en este conjunto (ver
+la ablación).
+
 ### Técnicas de prompting y ablación
 
 Clasificadas con la taxonomía de Schulhoff et al. (2024) [7]. Todos los agentes usan *role
@@ -180,16 +200,48 @@ Resultados en [`results/deliverable3/`](results/deliverable3/), con una traza po
 | sin refinamiento | 11/15 | 12/15 | 12/15 | 9/12 | 11/12 | 10/12 | 3,6 |
 
 - **Mejora frente al D2 (`e2e`):** 12/15 contra 10/15 en el set oficial y 11/12 contra 10/12 en
-  paráfrasis. En preguntas combinadas, 3/5 contra 2/5 y 6/7 contra 5/7.
+  paráfrasis. En preguntas combinadas, 3/5 contra 2/5 y 6/7 contra 5/7. La mejora neta esconde
+  cambios en ambos sentidos: los agentes resuelven 6 preguntas que el D2 fallaba (q03, q09, q11, q13,
+  q09-p, q14-p) y pierden 3 que el D2 resolvía (q04, q12, q11-p; ver el caso de falla).
 - **Ablación:**
   - Sin few-shot se pierden 2 preguntas oficiales y 1 paráfrasis.
   - Sin el Verificador se pierde 1 en cada conjunto: sus replanificaciones corrigieron q11 y q08-p.
   - Sin refinamiento se pierde un reporte (q10-p).
   - La descomposición suma 3 combinadas en paráfrasis (q09-p, q10-p, q12-en), pero cuesta una
     puntual oficial (q04).
-  - La autocorrección del Analista no cambia nada: en las 27 preguntas el Analista consultó al
-    modelo solo 2 veces, porque con el esquema enriquecido casi no hubo errores de SQL.
+  - La autocorrección del Analista **no se puede medir en este conjunto**: el Analista consultó al
+    modelo solo 2 veces en las 27 preguntas (q11-p), porque con el esquema enriquecido casi no hubo
+    errores de SQL. Quitarla deja los mismos resultados, pero eso no muestra que no aporte: la técnica
+    casi no se activó.
+- **Tamaño de las diferencias:** cada ablación difiere del sistema completo en 0 a 5 preguntas de 27,
+  y a veces en ambos sentidos: sin few-shot se pierden q02, q07, q11 y q10-p, pero se gana q04. Con
+  conjuntos así de chicos, una diferencia de una o dos preguntas indica una tendencia, no una
+  diferencia significativa; por eso se muestra el detalle por pregunta.
 - **Costo:** 3,6 llamadas y unos 33 s por pregunta, contra 2,1 llamadas y 15 s del D2.
+
+#### Detalle por pregunta (`e2e`, corrida v2)
+
+Solo las 14 preguntas en que alguna configuración difiere; las otras 13 las resuelven todas (✓ correcta,
+✗ incorrecta). La baseline no tiene `e2e` y se omite.
+
+| Pregunta | Tipo | D2 | Agentes v2 | sin few-shot | sin descomp. | sin autocorr. | sin verif. | sin refin. |
+|---|---|---|---|---|---|---|---|---|
+| q02 | puntual | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| q03 | puntual | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| q04 | puntual | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| q07 | puntual | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| q09 | combinada | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| q11 | combinada | ✗ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ |
+| q12 | combinada | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| q13 | puntual | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| q08-p | puntual | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| q09-p | combinada | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| q10-p | combinada | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✗ |
+| q11-p | combinada | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| q12-en | combinada | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| q14-p | combinada | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+La tabla se obtiene de `results/deliverable3/<config>.json` (campo `e2e` de cada registro).
 
 #### Caso de falla (v2): q12
 
@@ -197,8 +249,12 @@ Resultados en [`results/deliverable3/`](results/deliverable3/), con una traza po
 
 - **Qué hace el sistema:** el Planificador ordena los pasos como los nombra la pregunta (agosto antes
   que marzo), y el código calcula una caída de 37,14 % en vez de un alza de 59,08 %.
-- **Qué detecta:** `revisar_periodos` marca el orden inverso, y el Verificador devuelve el plan con
-  el motivo exacto.
+- **Qué detecta:** el control de orden de `revisar_periodos` marca que el período posterior va
+  primero, y el Verificador devuelve el plan con el motivo exacto (mensaje 24 de la traza de la
+  evaluación). En esa traza, `revisar_periodos` informa "todos cubiertos" (mensaje 21) porque en la
+  corrida v2 solo se registraba la cobertura de meses, no el control de orden. Desde el 29-10 ambos
+  controles quedan en la salida de la herramienta, sin cambiar ninguna decisión; la traza regenerada
+  está en [`results/deliverable3/demo/q12.json`](results/deliverable3/demo/q12.json).
 - **Por qué igual falla:** el Planificador repite el mismo plan. La decodificación es greedy y el
   sesgo por el orden en que la pregunta nombra los meses es fuerte. Agotado el reintento del
   Verificador, el sistema acepta.
@@ -217,7 +273,8 @@ En q10 el Verificador lee la pregunta como un listado, así que su devolución n
 2. **Prueba corta** (unos 5 minutos): `python scripts/evaluate_d3.py --limit 2 --configs agentes`.
 3. **Demo del video**: `python scripts/run_agents.py --id q09-p` imprime en vivo cada mensaje entre
    agentes, con la baseline sobre la misma entrada, y guarda la traza. `--without critic` (u otra
-   técnica) muestra el sistema sin esa técnica.
+   técnica) muestra el sistema sin esa técnica. El caso de falla se muestra con
+   `python scripts/run_agents.py --id q12 --no-baseline` (traza en `results/deliverable3/demo/q12.json`).
 4. **Evaluación completa** (unas 2 horas): `python scripts/evaluate_d3.py --resume`. Si Colab se
    desconecta, la misma orden continúa desde la última configuración guardada.
 5. **PDF**: `cd docs && pdflatex deliverable3.tex` (incluye la tabla generada).
@@ -242,6 +299,13 @@ En q10 el Verificador lee la pregunta como un listado, así que su devolución n
   todo con las mismas versiones.
 - Los cambios de v2 se definieron mirando fallos de ambos conjuntos; por eso, para v2, las
   paráfrasis dejan de ser un conjunto estrictamente externo. Los resultados de v1 se conservan.
+- Después de la corrida v2 (29-10) solo cambió el registro de la traza: `forma_resultado` informa
+  también los pasos descartados y `revisar_periodos` el orden de los períodos, dos controles que el
+  Verificador ya aplicaba pero que no quedaban como salida de una herramienta. Los mensajes de
+  retroalimentación y las decisiones no cambian: un test reproduce las 27 trazas de v2 con las salidas
+  del modelo guardadas en ellas y obtiene los mismos mensajes. Por eso los resultados de
+  v2 siguen vigentes. Las trazas de `trazas/` son de la corrida v2; las de `demo/` usan el registro
+  nuevo.
 
 ## Sistema (Deliverable 2)
 

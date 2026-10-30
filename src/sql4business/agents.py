@@ -557,12 +557,23 @@ class VerifierAgent(_Agent):
         if "critic" in self.system.enabled and can_replan:
             analysis = self.analyse_question(question, trace)
             shapes = result_shapes(outcome.composed)
+            # Every check the Verifier relies on is logged as the output of its tool, so the trace shows
+            # where each problem comes from (forma_resultado: shapes and dropped steps; revisar_periodos:
+            # uncovered months and the order of the two periods of a percentage change).
+            dropped = unused_steps(outcome.steps, outcome.composed.operation)
             trace.add(VERIFIER, "herramienta:forma_resultado", "llamada", {"operation": outcome.composed.operation})
-            trace.add("herramienta:forma_resultado", VERIFIER, "resultado", sorted(shapes))
+            trace.add("herramienta:forma_resultado", VERIFIER, "resultado",
+                      {"formas": sorted(shapes), "pasos_descartados": dropped})
             sqls = [execution.sql for execution in outcome.executions]
             missing = uncovered_periods(analysis["periods"], sqls, self.system.date_range)
+            reversed_order = False
+            if outcome.composed.operation == "growth_pct":
+                starts = first_dates(sqls)
+                reversed_order = None not in starts and starts[0] > starts[1]
             trace.add(VERIFIER, "herramienta:revisar_periodos", "llamada", {"periods": analysis["periods"]})
-            trace.add("herramienta:revisar_periodos", VERIFIER, "resultado", missing or "todos cubiertos")
+            trace.add("herramienta:revisar_periodos", VERIFIER, "resultado",
+                      {"sin_cubrir": missing, "orden_invertido": reversed_order}
+                      if missing or reversed_order else "todos cubiertos, en orden")
             problems = []
             if analysis["asks_for"] and analysis["asks_for"] not in shapes:
                 problems.append(
@@ -571,16 +582,13 @@ class VerifierAgent(_Agent):
                 )
             for period in missing:
                 problems.append(f"The question names the period {period['from']} to {period['to']}, but no step filters those dates.")
-            dropped = unused_steps(outcome.steps, outcome.composed.operation)
             if dropped:
                 problems.append(
                     f"The direct operation only returns the last step, so the result of {', '.join(dropped)} is lost; "
                     "if the answer needs those values, use a two-step operation."
                 )
-            if outcome.composed.operation == "growth_pct":
-                starts = first_dates(sqls)
-                if None not in starts and starts[0] > starts[1]:
-                    problems.append("growth_pct needs the earlier period in the first step and the later one in the second.")
+            if reversed_order:
+                problems.append("growth_pct needs the earlier period in the first step and the later one in the second.")
             labels = missing_labels(question, sqls, self.system.labels)
             trace.add(VERIFIER, "herramienta:revisar_filtros", "llamada", {"question": question})
             trace.add("herramienta:revisar_filtros", VERIFIER, "resultado", labels or "sin filtros faltantes")
